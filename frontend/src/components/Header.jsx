@@ -10,7 +10,8 @@ function Header() {
     setMicEnabled,
     setSpeakerEnabled,
     setSelectedLanguage,
-    setShowSettings
+    setShowSettings,
+    ollamaStatus
   } = useStore();
 
   const languages = [
@@ -25,11 +26,21 @@ function Header() {
   ];
 
   return (
-    <header className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
+    <header className="h-16 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
       <div className="flex items-center gap-2">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-          AI Unseen Workspace
-        </h1>
+        <div className="flex flex-col">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            AI Unseen Workspace
+          </h1>
+          {ollamaStatus?.message && (
+            <div className="text-xs text-gray-300">
+              {ollamaStatus.message}
+              {ollamaStatus.state === 'loading' && ollamaStatus.progress !== undefined && (
+                <span className="ml-2 text-blue-400">{ollamaStatus.progress}%</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       
       <div className="flex items-center gap-4">

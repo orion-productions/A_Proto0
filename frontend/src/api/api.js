@@ -92,6 +92,18 @@ export const api = {
     const response = await axios.get(`${API_BASE_URL}/llm/models`);
     return response.data;
   },
+
+  getOllamaStatus: async () => {
+    const response = await axios.get(`${API_BASE_URL}/llm/status`);
+    return response.data;
+  },
+
+  warmupModel: async (model) => {
+    const response = await axios.post(`${API_BASE_URL}/llm/warmup`, { model }, {
+      timeout: 120000 // 2 minutes timeout
+    });
+    return response.data;
+  },
   
   // MCP Tools
   getMCPTools: async () => {
@@ -104,17 +116,53 @@ export const api = {
     return response.data;
   },
   
-  // Audio transcription
-  transcribeAudio: async (audioBlob) => {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
-    
-    const response = await axios.post(`${API_BASE_URL}/transcribe`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+  // Audio transcription - Now handled entirely client-side using Web Speech API
+  // This is kept for compatibility but transcription happens in browser
+  transcribeAudio: async (audioBlob, onProgress) => {
+    // Note: Actual transcription is now done client-side using Web Speech API
+    // No backend call needed - see frontend/src/utils/speechToText.js
+    // This function is kept for API compatibility
+    return { message: 'Use transcribeAudioFile from speechToText.js instead' };
+  },
+
+  // Transcripts
+  saveTranscript: async (title, transcriptText, audioFileName = null, duration = null) => {
+    const response = await axios.post(`${API_BASE_URL}/transcripts`, {
+      title,
+      transcript_text: transcriptText,
+      audio_file_name: audioFileName,
+      duration
     });
     return response.data;
-  }
-};
+  },
+
+  getTranscripts: async () => {
+    const response = await axios.get(`${API_BASE_URL}/transcripts`);
+    return response.data;
+  },
+
+  getTranscript: async (transcriptId) => {
+    const response = await axios.get(`${API_BASE_URL}/transcripts/${transcriptId}`);
+    return response.data;
+  },
+
+    deleteTranscript: async (transcriptId) => {
+      const response = await axios.delete(`${API_BASE_URL}/transcripts/${transcriptId}`);
+      return response.data;
+    },
+
+    // Whisper transcription (backend)
+    transcribeWithWhisper: async (audioBlob, fileName) => {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, fileName);
+
+      const response = await axios.post(`${API_BASE_URL}/transcribe-whisper`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      return response.data;
+    }
+  };
 

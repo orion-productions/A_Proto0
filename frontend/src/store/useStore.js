@@ -22,6 +22,7 @@ const useStore = create((set, get) => ({
   // LLM state
   selectedModel: localStorage.getItem('selectedModel') || 'llama3.2:3b',
   availableModels: [],
+  ollamaStatus: { state: 'idle', message: '', progress: 0 },
   
   // MCP Tools
   mcpTools: [],
@@ -59,6 +60,7 @@ const useStore = create((set, get) => ({
   
   setAvailableModels: (models) => set({ availableModels: models }),
   setMcpTools: (tools) => set({ mcpTools: tools }),
+  setOllamaStatus: (status) => set({ ollamaStatus: status }),
   
   setSelectedTools: (tools) => {
     localStorage.setItem('selectedTools', JSON.stringify(tools));

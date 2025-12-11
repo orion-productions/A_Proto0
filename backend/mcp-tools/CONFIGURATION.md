@@ -172,6 +172,26 @@ DISCORD_BOT_TOKEN=your-bot-token-here
 
 **Note:** The bot must be a member of the servers you want to read from.
 
+## Audio Transcription
+
+The transcription feature uses Hugging Face Inference API. While some models work without authentication, you may need a free API token for better reliability and rate limits.
+
+```env
+HUGGINGFACE_API_TOKEN=hf_your-token-here
+```
+
+**How to get a free Hugging Face API token:**
+1. Go to https://huggingface.co/
+2. Sign up for a free account (if you don't have one)
+3. Go to https://huggingface.co/settings/tokens
+4. Click "New token"
+5. Give it a name (e.g., "MCP Tools Transcription")
+6. Select "Read" permissions
+7. Copy the token (starts with `hf_`)
+8. Add it to your `.env` file as `HUGGINGFACE_API_TOKEN`
+
+**Note:** The token is optional but recommended for better reliability and higher rate limits.
+
 ## Security Notes
 
 - **Never commit `.env` files to version control**

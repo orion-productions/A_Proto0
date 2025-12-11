@@ -10,6 +10,7 @@ import gmail from './gmail.js';
 import googleCalendar from './google-calendar.js';
 import googleDrive from './google-drive.js';
 import discord from './discord.js';
+import transcripts from './transcripts.js';
 
 // Helper to extract tools (excluding 'definition')
 const extractTools = (module) => {
@@ -30,6 +31,7 @@ export const mcpTools = {
   ...extractTools(googleCalendar),
   ...extractTools(googleDrive),
   ...extractTools(discord),
+  ...extractTools(transcripts),
 };
 
 // Export all tool definitions for LLM function calling
@@ -45,5 +47,6 @@ export const toolsDefinition = [
   ...googleCalendar.definition,
   ...googleDrive.definition,
   ...discord.definition,
+  ...transcripts.definition,
 ];
 

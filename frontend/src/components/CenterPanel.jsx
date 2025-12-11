@@ -205,6 +205,11 @@ function CenterPanel() {
             'list_discord_guilds': 'discord',
             'get_discord_message_reactions': 'discord',
             'search_discord_messages': 'discord',
+            // Transcripts tools
+            'get_transcripts': 'transcripts',
+            'get_transcript': 'transcripts',
+            'search_transcripts': 'transcripts',
+            'get_latest_transcript': 'transcripts',
           };
           
           if (toolEvent.type === 'call') {

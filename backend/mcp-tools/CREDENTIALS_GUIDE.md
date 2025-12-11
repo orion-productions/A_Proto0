@@ -34,6 +34,9 @@ CONFLUENCE_API_TOKEN=your-api-token
 
 # Discord
 DISCORD_BOT_TOKEN=your-bot-token-here
+
+# Audio Transcription (Optional but recommended)
+HUGGINGFACE_API_TOKEN=hf_your-token-here
 ```
 
 ---
@@ -365,6 +368,27 @@ Test individual tools by asking the LLM:
 
 ---
 
+## Audio Transcription (Optional)
+
+**Required:** `HUGGINGFACE_API_TOKEN` (optional but recommended)
+
+**What you need:**
+- A free Hugging Face account
+
+**Steps to get token:**
+1. Go to https://huggingface.co/
+2. Sign up for a free account
+3. Go to https://huggingface.co/settings/tokens
+4. Click "New token"
+5. Give it a name (e.g., "Transcription")
+6. Select "Read" permissions
+7. Copy the token (starts with `hf_`)
+8. Set `HUGGINGFACE_API_TOKEN=hf_your-token-here`
+
+**Note:** The token is optional - the service will try to work without it, but you may encounter rate limits or authentication errors. Adding a free token improves reliability.
+
+---
+
 ## Quick Checklist
 
 - [ ] Google Workspace: OAuth token obtained
@@ -374,6 +398,7 @@ Test individual tools by asking the LLM:
 - [ ] Perforce: Server, user, client, and password configured
 - [ ] Confluence: Base URL, email, and API token set (can reuse Jira token)
 - [ ] Discord: Bot token created and bot invited to servers
+- [ ] Audio Transcription: Hugging Face API token (optional but recommended)
 - [ ] All credentials added to `.env` file in `backend/` directory
 - [ ] Backend server restarted after adding credentials
 

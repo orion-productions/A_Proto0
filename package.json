@@ -7,7 +7,11 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "node backend/server.js",
     "dev:frontend": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "test": "node --test backend/**/*.test.js",
+    "test:frontend": "cd frontend && npm run test",
+    "test:all": "npm run test && npm run test:frontend",
+    "test:coverage": "npm run test && cd frontend && npm run test:coverage"
   },
   "dependencies": {
     "express": "^4.18.2",

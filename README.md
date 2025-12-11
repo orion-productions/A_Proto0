@@ -1,4 +1,4 @@
-# AI Unseen Workspace
+    # AI Unseen Workspace
 
 A powerful AI-powered workspace with LLM integration, MCP tools, voice controls, and 3D visualization.
 
@@ -46,8 +46,8 @@ Start both the backend server and frontend:
 npm run dev
 ```
 
-- Backend runs on: http://localhost:3002
-- Frontend runs on: http://localhost:5174
+- **Backend**: [http://localhost:3002](http://localhost:3002)
+- **Frontend**: [http://localhost:5174](http://localhost:5174)
 
 ## Usage
 
@@ -59,6 +59,16 @@ npm run dev
 6. **Record Audio**: Use the recording section to record meetings
 7. **Scratchpad**: Write notes in the bottom-left section
 8. **Settings**: Click the settings icon to configure models and API keys
+
+## Model status, device, and memory
+
+- The header shows readiness like: `ollama model llama3.2:3b is ready. GPU - 6.77GB VRAM`
+- GPU/CPU is inferred from Ollama `/api/ps`; NPU is not exposed by the API (GPU shown when VRAM/gpu layers are present).
+- Memory shown is runtime VRAM if on GPU, otherwise RAM; if unavailable, falls back to the model file size.
+- API endpoints:
+  - `GET /api/llm/status` → version + running models with `device`, `memoryType`, `sizeGB`
+  - `POST /api/llm/warmup` → warm a model: `{ "model": "llama3.2:3b" }`
+  - `POST /api/llm/stop` → unload a model: `{ "model": "llama3.2:3b" }` (useful to force reload onto GPU)
 
 ## Architecture
 

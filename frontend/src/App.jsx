@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import Header from './components/Header';
 import LeftPanel from './components/LeftPanel';
@@ -9,12 +9,15 @@ import useStore from './store/useStore';
 import { api } from './api/api';
 
 function App() {
-  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, showSettings } = useStore();
+  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, setOllamaStatus, selectedModel, showSettings } = useStore();
+  const progressIntervalRef = useRef(null);
+  const progressRef = useRef(0);
 
   useEffect(() => {
-    // Load initial data
+    // Load initial data and check Ollama
     const loadData = async () => {
       try {
+        setOllamaStatus({ state: 'starting', message: 'ollama app starting', progress: 0 });
         const [chats, tools, models] = await Promise.all([
           api.getChats(),
           api.getMCPTools(),
@@ -23,12 +26,193 @@ function App() {
         setChats(chats);
         setMcpTools(tools);
         setAvailableModels(models);
+
+        // Check Ollama availability before warmup
+        try {
+          await api.getOllamaStatus();
+        } catch (statusErr) {
+          if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
+          return;
+        }
+
+        // Start loading with progress tracking
+        progressRef.current = 0;
+        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = setInterval(() => {
+          progressRef.current = Math.min(progressRef.current + Math.random() * 15, 95); // Cap at 95% until done
+          setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: Math.round(progressRef.current) });
+        }, 200);
+        
+        setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: 0 });
+        
+        // Add timeout to warmup (2 minutes)
+        const warmupPromise = api.warmupModel(selectedModel);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Warmup timeout - model may still be loading')), 120000)
+        );
+        
+        try {
+          const warmupResult = await Promise.race([warmupPromise, timeoutPromise]);
+          console.log('Warmup result:', warmupResult);
+          
+          // Verify model is actually loaded and get device/memory info
+          let device = 'CPU';
+          let sizeGB = 0;
+          let memoryType = 'RAM';
+          try {
+            const status = await api.getOllamaStatus();
+            console.log('Status response:', status);
+            const modelInfo = status.modelsRunning?.find(m => m.name === selectedModel);
+            console.log('Model info from status:', modelInfo);
+            if (modelInfo) {
+              device = modelInfo.device || 'CPU';
+              sizeGB = modelInfo.sizeGB || 0;
+              memoryType = modelInfo.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
+              console.log(`Model ${selectedModel} confirmed loaded on ${device}, size: ${sizeGB}GB, memoryType: ${memoryType}`);
+            } else if (warmupResult) {
+              // Fallback to warmup result if status doesn't have the info
+              device = warmupResult.device || 'CPU';
+              sizeGB = warmupResult.sizeGB || 0;
+              memoryType = warmupResult.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
+              console.log(`Using warmup result - device: ${device}, sizeGB: ${sizeGB}, memoryType: ${memoryType}`);
+            }
+          } catch (statusError) {
+            console.warn('Could not verify model status:', statusError);
+            // Fallback to warmup result
+            if (warmupResult) {
+              device = warmupResult.device || 'CPU';
+              sizeGB = warmupResult.sizeGB || 0;
+              memoryType = warmupResult.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
+              console.log(`Fallback to warmup result - device: ${device}, sizeGB: ${sizeGB}, memoryType: ${memoryType}`);
+            }
+          }
+          
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          
+          // Format device and memory info
+          console.log(`Final values - device: ${device}, sizeGB: ${sizeGB}, memoryType: ${memoryType}`);
+          const memLabel = sizeGB > 0 ? `${sizeGB}GB${memoryType ? ` ${memoryType}` : ''}` : '';
+          const deviceInfo = sizeGB > 0 ? `${device} - ${memLabel}` : device;
+          setOllamaStatus({ state: 'ready', message: `ollama model ${selectedModel} is ready. ${deviceInfo}`, progress: 100 });
+        } catch (warmupError) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          // If timeout, model might still be loading in background - show warning but continue
+          if (warmupError.message.includes('timeout')) {
+            console.warn('Warmup timed out, but model may still be loading');
+            setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading (this may take a while...)`, progress: 95 });
+          } else {
+            throw warmupError;
+          }
+        }
       } catch (error) {
         console.error('Error loading initial data:', error);
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
       }
     };
     loadData();
   }, []);
+
+  // Warm up when model changes
+  useEffect(() => {
+    const warm = async () => {
+      try {
+        // Start loading with progress tracking
+        progressRef.current = 0;
+        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = setInterval(() => {
+          progressRef.current = Math.min(progressRef.current + Math.random() * 15, 95); // Cap at 95% until done
+          setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: Math.round(progressRef.current) });
+        }, 200);
+        
+        setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: 0 });
+        
+        // Add timeout to warmup (2 minutes)
+        const warmupPromise = api.warmupModel(selectedModel);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Warmup timeout - model may still be loading')), 120000)
+        );
+        
+        try {
+          const warmupResult = await Promise.race([warmupPromise, timeoutPromise]);
+          console.log('Warmup result:', warmupResult);
+          
+          // Verify model is actually loaded and get device/memory info
+          let device = 'CPU';
+          let sizeGB = 0;
+          try {
+            const status = await api.getOllamaStatus();
+            console.log('Status response:', status);
+            const modelInfo = status.modelsRunning?.find(m => m.name === selectedModel);
+            console.log('Model info from status:', modelInfo);
+            if (modelInfo) {
+              device = modelInfo.device || 'CPU';
+              sizeGB = modelInfo.sizeGB || 0;
+              console.log(`Model ${selectedModel} confirmed loaded on ${device}, size: ${sizeGB}GB`);
+            } else if (warmupResult) {
+              // Fallback to warmup result if status doesn't have the info
+              device = warmupResult.device || 'CPU';
+              sizeGB = warmupResult.sizeGB || 0;
+              console.log(`Using warmup result - device: ${device}, sizeGB: ${sizeGB}`);
+            }
+          } catch (statusError) {
+            console.warn('Could not verify model status:', statusError);
+            // Fallback to warmup result
+            if (warmupResult) {
+              device = warmupResult.device || 'CPU';
+              sizeGB = warmupResult.sizeGB || 0;
+              console.log(`Fallback to warmup result - device: ${device}, sizeGB: ${sizeGB}`);
+            }
+          }
+          
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          
+          // Format device and memory info
+          console.log(`Final values - device: ${device}, sizeGB: ${sizeGB}`);
+          const deviceInfo = sizeGB > 0 ? `${device} - ${sizeGB}GB` : device;
+          setOllamaStatus({ state: 'ready', message: `ollama model ${selectedModel} is ready. ${deviceInfo}`, progress: 100 });
+        } catch (warmupError) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          // If timeout, model might still be loading in background - show warning but continue
+          if (warmupError.message.includes('timeout')) {
+            console.warn('Warmup timed out, but model may still be loading');
+            setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading (this may take a while...)`, progress: 95 });
+          } else {
+            throw warmupError;
+          }
+        }
+      } catch (error) {
+        console.error('Warmup error:', error);
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
+      }
+    };
+    if (selectedModel) {
+      warm();
+    }
+  }, [selectedModel]);
 
   const handlePanelResize = (sizes) => {
     setPanelSizes(sizes);

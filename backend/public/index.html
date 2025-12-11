@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/thumbnails/backend.png" />
+    <link rel="apple-touch-icon" href="/thumbnails/backend.png" />
+    <meta property="og:title" content="AI Unseen Workspace - Backend API" />
+    <meta property="og:description" content="Backend API server for AI Unseen Workspace with LLM integration, MCP tools, and transcription services" />
+    <meta property="og:image" content="/thumbnails/backend.png" />
+    <meta property="og:image:alt" content="Backend API thumbnail" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AI Unseen Workspace - Backend API" />
+    <meta name="twitter:description" content="Backend API server for AI Unseen Workspace" />
+    <meta name="twitter:image" content="/thumbnails/backend.png" />
+    <title>AI Unseen Workspace - Backend API</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        color: #333;
+      }
+      .container {
+        background: white;
+        border-radius: 16px;
+        padding: 40px;
+        max-width: 800px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      }
+      h1 {
+        color: #667eea;
+        margin-bottom: 10px;
+        font-size: 2.5em;
+      }
+      .subtitle {
+        color: #666;
+        margin-bottom: 30px;
+        font-size: 1.1em;
+      }
+      .info {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      .info h2 {
+        color: #333;
+        margin-bottom: 15px;
+        font-size: 1.3em;
+      }
+      .endpoints {
+        list-style: none;
+        margin-top: 10px;
+      }
+      .endpoints li {
+        padding: 8px 0;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .endpoints li:last-child {
+        border-bottom: none;
+      }
+      .endpoint {
+        font-family: 'Courier New', monospace;
+        color: #667eea;
+        font-weight: 600;
+      }
+      .link {
+        display: inline-block;
+        margin-top: 20px;
+        padding: 12px 24px;
+        background: #667eea;
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        transition: background 0.3s;
+      }
+      .link:hover {
+        background: #5568d3;
+      }
+      .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #667eea;
+        color: white;
+        border-radius: 4px;
+        font-size: 0.85em;
+        margin-left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🚀 AI Unseen Workspace</h1>
+      <p class="subtitle">Backend API Server</p>
+      
+      <div class="info">
+        <h2>API Information</h2>
+        <p><strong>Version:</strong> 1.0.0</p>
+        <p><strong>Status:</strong> <span class="badge">Running</span></p>
+      </div>
+
+      <div class="info">
+        <h2>Available Endpoints</h2>
+        <ul class="endpoints">
+          <li><span class="endpoint">GET /api/chats</span> - List all chats</li>
+          <li><span class="endpoint">POST /api/chats</span> - Create a new chat</li>
+          <li><span class="endpoint">GET /api/chats/:id/messages</span> - Get chat messages</li>
+          <li><span class="endpoint">POST /api/llm/chat</span> - Chat with LLM</li>
+          <li><span class="endpoint">GET /api/llm/models</span> - Get available models</li>
+          <li><span class="endpoint">GET /api/llm/status</span> - Check Ollama status</li>
+          <li><span class="endpoint">GET /api/mcp/tools</span> - List MCP tools</li>
+          <li><span class="endpoint">GET /api/transcripts</span> - List transcripts</li>
+          <li><span class="endpoint">POST /api/transcribe-whisper</span> - Transcribe audio</li>
+        </ul>
+      </div>
+
+      <a href="http://localhost:5174" class="link">🌐 Open Frontend Application</a>
+      <a href="/api/chats" class="link" style="margin-left: 10px; background: #764ba2;">📡 View API (JSON)</a>
+    </div>
+  </body>
+</html>
+

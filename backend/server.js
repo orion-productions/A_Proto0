@@ -7,18 +7,24 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { mcpTools, toolsDefinition } from './mcp-tools/index.js';
+
+const execAsync = promisify(exec);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3002;
+const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base.en'; // better accuracy than tiny with moderate size
+const WHISPER_LANGUAGE = process.env.WHISPER_LANGUAGE || 'en';
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static('public'));
+app.use(express.static(join(__dirname, 'public')));
 
 // Initialize SQLite database
 const db = new Database('chats.db');
@@ -37,6 +43,16 @@ db.exec(`
     content TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS transcripts (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    transcript_text TEXT NOT NULL,
+    audio_file_name TEXT,
+    duration INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
   );
 `);
 
@@ -221,6 +237,29 @@ async function executeTool(toolName, params) {
       case 'search_discord_messages':
         return await mcpTools.searchDiscordMessages(params.channelId, params.query, params.limit);
       
+      // Transcripts tools
+      case 'get_transcripts':
+        const transcriptsResult = mcpTools.getTranscripts();
+        if (transcriptsResult.error) {
+          return { error: transcriptsResult.error, suggestion: 'No transcripts found. Please record a meeting or upload an audio file first.' };
+        }
+        return transcriptsResult;
+      case 'get_transcript':
+        // If transcriptId is null, missing, or empty, use get_latest_transcript instead
+        if (!params || !params.transcriptId || params.transcriptId === null || params.transcriptId === '') {
+          console.log('get_transcript called without ID, using get_latest_transcript instead');
+          const result = mcpTools.getLatestTranscript();
+          if (result.error) {
+            return { error: result.error, suggestion: 'No transcripts found. Please record a meeting first.' };
+          }
+          return result;
+        }
+        return mcpTools.getTranscript(params.transcriptId);
+      case 'search_transcripts':
+        return mcpTools.searchTranscripts(params.query);
+      case 'get_latest_transcript':
+        return mcpTools.getLatestTranscript();
+      
       default:
         console.error(`Unknown tool: ${toolName}`);
         return { error: `Unknown tool: ${toolName}` };
@@ -232,6 +271,34 @@ async function executeTool(toolName, params) {
 }
 
 // API Routes
+
+// Root route - Serve HTML for browsers, JSON for API clients
+app.get('/', (req, res) => {
+  const acceptHeader = req.headers.accept || '';
+  // If browser requests HTML, serve the HTML page with thumbnail
+  if (acceptHeader.includes('text/html')) {
+    res.sendFile(join(__dirname, 'public', 'index.html'));
+  } else {
+    // Otherwise serve JSON for API clients
+    res.json({
+      message: 'AI Unseen Workspace API Server',
+      version: '1.0.0',
+      endpoints: {
+        chats: '/api/chats',
+        messages: '/api/chats/:id/messages',
+        llm: '/api/llm/chat',
+        models: '/api/llm/models',
+        status: '/api/llm/status',
+        mcpTools: '/api/mcp/tools',
+        transcripts: '/api/transcripts',
+        transcribe: '/api/transcribe',
+        transcribeWhisper: '/api/transcribe-whisper'
+      },
+      frontend: 'http://localhost:5174',
+      documentation: 'See README.md for API usage'
+    });
+  }
+});
 
 // Chat management
 app.get('/api/chats', (req, res) => {
@@ -263,6 +330,43 @@ app.put('/api/chats/:id', (req, res) => {
     .run(title, timestamp, req.params.id);
   
   res.json({ success: true, title, updated_at: timestamp });
+});
+
+// Transcripts API
+app.post('/api/transcripts', (req, res) => {
+  const { title, transcript_text, audio_file_name, duration } = req.body;
+  const id = uuidv4();
+  const timestamp = Date.now();
+  
+  if (!transcript_text || typeof transcript_text !== 'string' || transcript_text.trim() === '') {
+    return res.status(400).json({ error: 'transcript_text is required' });
+  }
+  
+  db.prepare(`
+    INSERT INTO transcripts (id, title, transcript_text, audio_file_name, duration, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, title || 'Untitled Transcript', transcript_text, audio_file_name || null, duration || null, timestamp, timestamp);
+  
+  const transcript = db.prepare('SELECT * FROM transcripts WHERE id = ?').get(id);
+  res.json(transcript);
+});
+
+app.get('/api/transcripts', (req, res) => {
+  const transcripts = db.prepare('SELECT * FROM transcripts ORDER BY created_at DESC').all();
+  res.json(transcripts);
+});
+
+app.get('/api/transcripts/:id', (req, res) => {
+  const transcript = db.prepare('SELECT * FROM transcripts WHERE id = ?').get(req.params.id);
+  if (!transcript) {
+    return res.status(404).json({ error: 'Transcript not found' });
+  }
+  res.json(transcript);
+});
+
+app.delete('/api/transcripts/:id', (req, res) => {
+  db.prepare('DELETE FROM transcripts WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
 });
 
 app.get('/api/chats/:id/messages', (req, res) => {
@@ -316,13 +420,117 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
       const needsDriveTool = /drive|file|document|folder|google drive|gdrive/i.test(lastUserMessage);
       const needsDiscordTool = /discord|guild|server|channel|dm|direct message/i.test(lastUserMessage);
+      const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage);
       
       const needsTools = needsWeatherTool || needsAddTool || needsJiraTool || 
                         needsSlackTool || needsGithubTool || needsPerforceTool || needsConfluenceTool ||
-                        needsGmailTool || needsCalendarTool || needsDriveTool || needsDiscordTool;
+                        needsGmailTool || needsCalendarTool || needsDriveTool || needsDiscordTool || needsTranscriptTool;
       
       console.log('User message:', lastUserMessage);
       console.log('Needs tools:', needsTools);
+      
+      // Fast-path transcript requests: call transcript tool directly so user always gets a response,
+      // even if the model fails to emit a tool call.
+      if (enableTools && needsTranscriptTool) {
+        // Send tool call + result events so the frontend shows MCP activity
+        res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
+        const toolResult = await executeTool('get_latest_transcript', {});
+        res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
+        
+        let content;
+        if (toolResult.error) {
+          content = `I couldn't fetch the transcript: ${toolResult.error}`;
+        } else {
+          const title = toolResult.title || 'Latest transcript';
+          const body = toolResult.transcript_text || '(no content)';
+          content = `Here is ${title}:\n\n${body}`;
+        }
+        
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
+
+      // Fast-path weather requests: extract city and call weather tool directly
+      if (enableTools && needsWeatherTool) {
+        // Try to extract city name from the message - handle both capitalized and lowercase
+        const cityMatch = lastUserMessage.match(/(?:weather|temperature|forecast|climat|météo).*?(?:in|at|for|of)\s+([a-zA-Z\s]+?)(?:\?|$|\.|,)/i) ||
+                        lastUserMessage.match(/(?:weather|temperature|forecast|climat|météo)\s+(?:in|at|for|of)?\s*([a-zA-Z\s]+?)(?:\?|$|\.|,)/i) ||
+                        lastUserMessage.match(/([a-zA-Z\s]+?)(?:\s+weather|\s+temperature|\s+forecast)/i);
+        
+        let city = cityMatch ? cityMatch[1].trim() : null;
+        
+        // If no city found, try common patterns (case-insensitive)
+        if (!city) {
+          // Check for common city names in the message
+          const commonCities = ['Paris', 'London', 'New York', 'Tokyo', 'Berlin', 'Madrid', 'Rome', 'Amsterdam', 'Vienna', 'Barcelona', 'New York City', 'Los Angeles', 'San Francisco', 'Chicago', 'Miami', 'Seattle'];
+          for (const commonCity of commonCities) {
+            if (lastUserMessage.toLowerCase().includes(commonCity.toLowerCase())) {
+              city = commonCity;
+              break;
+            }
+          }
+        }
+        
+        // If still no city, try to find any capitalized word (likely a city name)
+        if (!city) {
+          const words = lastUserMessage.split(/\s+/);
+          // Look for capitalized words that aren't common words
+          const commonWords = ['what', 'is', 'the', 'weather', 'in', 'at', 'for', 'of', 'temperature', 'forecast'];
+          const capitalizedWords = words.filter(w => 
+            /^[A-Z][a-z]+$/.test(w) && !commonWords.includes(w.toLowerCase())
+          );
+          if (capitalizedWords.length > 0) {
+            city = capitalizedWords[capitalizedWords.length - 1];
+          }
+        }
+        
+        // Last resort: if message is simple like "weather in paris", extract the word after "in"
+        if (!city) {
+          const inMatch = lastUserMessage.match(/\bin\s+([a-z]+)/i);
+          if (inMatch) {
+            city = inMatch[1].charAt(0).toUpperCase() + inMatch[1].slice(1);
+          }
+        }
+        
+        if (city) {
+          console.log(`Fast-path weather request for city: ${city}`);
+          // Send tool call + result events so the frontend shows MCP activity
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_weather', params: { city } })}\n\n`);
+          const toolResult = await executeTool('get_weather', { city });
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_weather', result: toolResult })}\n\n`);
+          
+          // Generate a natural response using the LLM with the tool result
+          const weatherMessages = [...messages];
+          weatherMessages.push({
+            role: 'assistant',
+            content: `I checked the weather for ${city}. Here's what I found: ${JSON.stringify(toolResult)}. Please provide a natural language response to the user.`
+          });
+          
+          // Get final response from LLM
+          const finalResponse = await axios.post(`${ollamaUrl}/api/chat`, {
+            model: model || 'llama3.2:3b',
+            messages: weatherMessages,
+            stream: false
+          }, {
+            timeout: 30000 // 30 second timeout for final response
+          });
+          
+          const finalContent = finalResponse.data.message.content || '';
+          res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
+          
+          // Stream the final content
+          const chunkSize = 5;
+          for (let i = 0; i < finalContent.length; i += chunkSize) {
+            const chunk = finalContent.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+      }
       
       // Only add tool instructions if the query needs them
       if (enableTools && needsTools && conversationMessages[0]?.role !== 'system') {
@@ -340,6 +548,15 @@ For example:
 [TOOL_CALL: get_weather {"city": "Paris"}]
 [TOOL_CALL: get_jira_issue {"issueKey": "PROJ-123"}]
 [TOOL_CALL: get_github_issue {"owner": "owner", "repo": "repo", "issueNumber": 1}]
+[TOOL_CALL: get_latest_transcript {}]
+[TOOL_CALL: get_transcripts {}]
+[TOOL_CALL: search_transcripts {"query": "meeting"}]
+
+IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
+- ALWAYS use get_latest_transcript (NOT get_transcript) when user asks about "the transcript", "the transcript file", "display the transcript", "what is in the transcript", or any question about transcripts without specifying a transcript ID
+- Use get_transcripts to list all available transcripts
+- Use search_transcripts to find specific words or topics
+- ONLY use get_transcript when you have a specific transcriptId from get_transcripts
 
 After using a tool, you'll receive the result and should provide a natural language response to the user.`;
         
@@ -368,11 +585,14 @@ After using a tool, you'll receive the result and should provide a natural langu
           console.log('NOT adding tools to request');
         }
         
-        const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody);
+        const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody, {
+          timeout: 60000 // 60 second timeout per LLM call
+        });
         const assistantMessage = response.data.message;
         
         // Debug logging
         console.log('LLM Response:', JSON.stringify(assistantMessage, null, 2));
+        console.log('Tool calls detected:', assistantMessage.tool_calls?.length || 0);
         
         // Check if the LLM wants to use a tool
         if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
@@ -384,7 +604,19 @@ After using a tool, you'll receive the result and should provide a natural langu
           // Execute each tool call
           for (const toolCall of assistantMessage.tool_calls) {
             const toolName = toolCall.function.name;
-            const toolParams = toolCall.function.arguments;
+            // Parse tool parameters - they might be a JSON string or already an object
+            let toolParams = toolCall.function.arguments;
+            if (typeof toolParams === 'string') {
+              try {
+                toolParams = JSON.parse(toolParams);
+              } catch (e) {
+                console.warn('Failed to parse tool params as JSON:', toolParams);
+                toolParams = {};
+              }
+            }
+            if (!toolParams || typeof toolParams !== 'object') {
+              toolParams = {};
+            }
             
             // Send tool call info to frontend
             res.write(`data: ${JSON.stringify({ 
@@ -394,7 +626,9 @@ After using a tool, you'll receive the result and should provide a natural langu
             })}\n\n`);
             
             // Execute the tool
+            console.log(`Executing tool: ${toolName} with params:`, toolParams);
             const toolResult = await executeTool(toolName, toolParams);
+            console.log(`Tool result:`, toolResult);
             
             // Send tool result to frontend
             res.write(`data: ${JSON.stringify({ 
@@ -432,7 +666,9 @@ After using a tool, you'll receive the result and should provide a natural langu
           })}\n\n`);
           
           // Execute the tool
+          console.log(`Executing tool (manual format): ${toolName} with params:`, toolParams);
           const toolResult = await executeTool(toolName, toolParams);
+          console.log(`Tool result (manual format):`, toolResult);
           
           // Send tool result to frontend
           res.write(`data: ${JSON.stringify({ 
@@ -499,6 +735,237 @@ app.get('/api/llm/models', async (req, res) => {
   }
 });
 
+// Check Ollama status (version + running models)
+app.get('/api/llm/status', async (req, res) => {
+  const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  try {
+    const [versionResp, psResp, tagsResp] = await Promise.all([
+      axios.get(`${ollamaUrl}/api/version`),
+      axios.get(`${ollamaUrl}/api/ps`),
+      axios.get(`${ollamaUrl}/api/tags`).catch(() => ({ data: { models: [] } }))
+    ]);
+    
+    // Precompute tag sizes (model file sizes)
+    const tagSizes = {};
+    (tagsResp.data?.models || []).forEach(m => {
+      const name = m.name || m.model;
+      if (name && m.size) {
+        tagSizes[name] = m.size;
+      }
+    });
+
+    // Enhance each running model with device and memory info (RAM vs VRAM)
+    const modelsRunning = (psResp.data?.models || []).map((model) => {
+      const gpuLayers = model.gpu_layers || model.gpu_layers_count || 0;
+      const sizeVram = model.size_vram || 0; // bytes in VRAM if present
+      const sizeRam = model.size || 0;       // bytes in system memory
+      const tagSize = tagSizes[model.name] || 0; // model file size fallback
+
+      // Device detection (NPU is not exposed; heuristic falls back to GPU/CPU)
+      let device = 'CPU';
+      if (gpuLayers > 0 || sizeVram > 0) {
+        device = 'GPU'; // Could be NPU, but Ollama API doesn't expose it
+      }
+
+      // Prefer VRAM size when present, else RAM, else tag size
+      let memoryBytes = sizeVram || sizeRam || tagSize || 0;
+      let memoryType = sizeVram > 0 ? 'VRAM' : 'RAM';
+
+      const sizeGB = memoryBytes > 0 ? parseFloat((memoryBytes / (1024 * 1024 * 1024)).toFixed(2)) : 0;
+
+      return {
+        ...model,
+        device,
+        memoryType,
+        sizeGB,
+        name: model.name
+      };
+    });
+
+    res.json({
+      status: 'ok',
+      version: versionResp.data?.version,
+      modelsRunning
+    });
+  } catch (error) {
+    console.error('Ollama status error:', error.message);
+    const message = error.response?.data?.error || error.message;
+    res.status(500).json({ status: 'error', error: message });
+  }
+});
+
+// Stop/unload a model (helps re-evaluate GPU usage)
+app.post('/api/llm/stop', async (req, res) => {
+  const { model } = req.body;
+  const targetModel = model || process.env.DEFAULT_MODEL || 'llama3.2:3b';
+  const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  try {
+    await axios.post(`${ollamaUrl}/api/stop`, { name: targetModel });
+    res.json({ status: 'stopped', model: targetModel });
+  } catch (error) {
+    console.error('Stop model error:', error.message);
+    const message = error.response?.data?.error || error.message;
+    res.status(500).json({ status: 'error', error: message });
+  }
+});
+
+// Warm up / load a specific Ollama model (non-streaming)
+app.post('/api/llm/warmup', async (req, res) => {
+  const { model } = req.body;
+  const targetModel = model || process.env.DEFAULT_MODEL || 'llama3.2:3b';
+  const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+  try {
+    // First check if model is already loaded
+    try {
+      const psResponse = await axios.get(`${ollamaUrl}/api/ps`);
+      const runningModels = psResponse.data?.models || [];
+      const isModelLoaded = runningModels.some(m => m.name === targetModel);
+      
+      if (isModelLoaded) {
+        console.log(`Model ${targetModel} is already loaded`);
+        const modelInfo = runningModels.find(m => m.name === targetModel);
+        
+        // Get device info
+        const gpuLayers = modelInfo?.gpu_layers || modelInfo?.gpu_layers_count || 0;
+        const sizeVram = modelInfo?.size_vram || 0;
+        let device = 'CPU';
+        if (gpuLayers > 0 || sizeVram > 0) {
+          device = 'GPU'; // Could be NPU, but hard to distinguish via API
+        }
+
+        // Use VRAM size if available, otherwise RAM size
+        let memoryBytes = sizeVram > 0 ? sizeVram : (modelInfo?.size || 0);
+        let memoryType = sizeVram > 0 ? 'VRAM' : 'RAM';
+
+        // Fallback: if no size info from ps, try tags endpoint (model file size)
+        if (!memoryBytes) {
+          try {
+            const tagsResponse = await axios.get(`${ollamaUrl}/api/tags`);
+            const tagModelInfo = tagsResponse.data?.models?.find(m => m.name === targetModel || m.model === targetModel);
+            if (tagModelInfo && tagModelInfo.size) {
+              memoryBytes = tagModelInfo.size;
+              memoryType = 'RAM';
+            }
+          } catch (tagsError) {
+            console.warn('Could not get model size:', tagsError.message);
+          }
+        }
+
+        const sizeGB = memoryBytes > 0 ? parseFloat((memoryBytes / (1024 * 1024 * 1024)).toFixed(2)) : 0;
+        
+        return res.json({
+          status: 'ready',
+          model: targetModel,
+          alreadyLoaded: true,
+          device,
+          memoryType,
+          sizeGB
+        });
+      }
+    } catch (psError) {
+      console.warn('Could not check model status:', psError.message);
+    }
+
+    // Load the model by making a simple generation request
+    // Use a timeout to prevent hanging
+    const timeout = 120000; // 2 minutes timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await axios.post(`${ollamaUrl}/api/generate`, {
+        model: targetModel,
+        prompt: 'ping',
+        stream: false
+      }, {
+        timeout: timeout,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      // Verify model is loaded and get device/memory info
+      let device = 'CPU';
+      let memoryType = 'RAM';
+      let memoryBytes = 0;
+
+      try {
+        // Prefer runtime memory info from /api/ps
+        try {
+          const psResponse = await axios.get(`${ollamaUrl}/api/ps`);
+          const runningModels = psResponse.data?.models || [];
+          const modelInfo = runningModels.find(m => m.name === targetModel);
+
+          if (modelInfo) {
+            const gpuLayers = modelInfo.gpu_layers || modelInfo.gpu_layers_count || 0;
+            const sizeVram = modelInfo.size_vram || 0;
+            const sizeRam = modelInfo.size || 0;
+
+            if (gpuLayers > 0 || sizeVram > 0) {
+              device = 'GPU'; // NPU not exposed; heuristic treats VRAM/gpu_layers as GPU
+            } else {
+              device = 'CPU';
+            }
+
+            if (sizeVram > 0) {
+              memoryBytes = sizeVram;
+              memoryType = 'VRAM';
+            } else if (sizeRam > 0) {
+              memoryBytes = sizeRam;
+              memoryType = 'RAM';
+            }
+
+            console.log(`Model ${targetModel} running on ${device} (gpu_layers: ${gpuLayers}, vram: ${sizeVram > 0 ? (sizeVram / (1024*1024*1024)).toFixed(2) + 'GB' : '0'}, ram: ${sizeRam > 0 ? (sizeRam / (1024*1024*1024)).toFixed(2) + 'GB' : '0'})`);
+          } else {
+            console.warn(`Model ${targetModel} may not be fully loaded`);
+          }
+        } catch (psError) {
+          console.warn('Could not get model device info:', psError.message);
+        }
+
+        // Fallback: use model file size from /api/tags if runtime sizes are missing
+        if (!memoryBytes) {
+          try {
+            const tagsResponse = await axios.get(`${ollamaUrl}/api/tags`);
+            const tagModelInfo = tagsResponse.data?.models?.find(m => m.name === targetModel || m.model === targetModel);
+            if (tagModelInfo && tagModelInfo.size) {
+              memoryBytes = tagModelInfo.size;
+              memoryType = 'RAM';
+            }
+          } catch (tagsError) {
+            console.warn('Could not get model size from tags:', tagsError.message);
+          }
+        }
+      } catch (verifyError) {
+        console.warn('Could not verify model load status:', verifyError.message);
+      }
+
+      const sizeGB = memoryBytes > 0 ? parseFloat((memoryBytes / (1024 * 1024 * 1024)).toFixed(2)) : 0;
+
+      res.json({
+        status: 'ready',
+        model: targetModel,
+        device,
+        memoryType,
+        sizeGB,
+        response_time_ms: response.data?.total_duration ? Math.round(response.data.total_duration / 1000000) : undefined,
+      });
+    } catch (generateError) {
+      clearTimeout(timeoutId);
+      throw generateError;
+    }
+  } catch (error) {
+    console.error('Warmup error:', error.message);
+    const message = error.response?.data?.error || error.message;
+    const isTimeout = error.code === 'ECONNABORTED' || error.message.includes('timeout');
+    res.status(500).json({ 
+      status: 'error', 
+      error: isTimeout ? 'Model loading timed out. The model may still be loading in the background.' : message 
+    });
+  }
+});
+
 // MCP Tools
 app.get('/api/mcp/tools', (req, res) => {
   // Group tools by service/category for better organization
@@ -521,6 +988,8 @@ app.get('/api/mcp/tools', (req, res) => {
     'google-drive': { id: 'google-drive', name: 'Google Drive', description: 'Read Drive files, folders, and metadata', category: 'Google Workspace' },
     // Discord tools
     'discord': { id: 'discord', name: 'Discord', description: 'Read Discord channels, messages, servers, and users', category: 'Discord' },
+    // Transcripts tools
+    'transcripts': { id: 'transcripts', name: 'Transcripts', description: 'Display, search, and summarize meeting transcripts and recordings', category: 'General' },
   };
   
   res.json(Object.values(toolCategories));
@@ -542,8 +1011,9 @@ app.post('/api/mcp/tools/:toolId', async (req, res) => {
   }
 });
 
-// Audio transcription (using free Whisper model via Hugging Face Inference API)
-// Note: You'll need to sign up for a free Hugging Face account and get an API key
+// Audio transcription - Now using Web Speech API (client-side, completely free, no dependencies)
+// Transcription happens entirely in the browser - no backend processing needed
+// This endpoint is kept for file upload compatibility but transcription is client-side
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     const audioFile = req.file;
@@ -551,16 +1021,141 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'No audio file provided' });
     }
 
-    // For now, return a placeholder response
-    // In production, you'd integrate with Whisper API or run it locally
+    // Return file info - actual transcription happens client-side using Web Speech API
+    // The file is available for the client to process
     res.json({ 
-      text: 'Transcription feature ready. To enable, add Hugging Face API key or set up local Whisper.',
-      placeholder: true
+      message: 'File uploaded. Transcription will happen in browser using Web Speech API.',
+      fileName: audioFile.filename,
+      size: audioFile.size,
+      path: `/uploads/${audioFile.filename}` // For reference, but client processes the blob
     });
 
-    // Clean up uploaded file
-    fs.unlinkSync(audioFile.path);
+    // Clean up uploaded file after a delay
+    setTimeout(() => {
+      if (fs.existsSync(audioFile.path)) {
+        fs.unlinkSync(audioFile.path);
+      }
+    }, 60000);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to test Whisper
+app.get('/api/test-whisper', async (req, res) => {
+  try {
+    const testFile = req.query.file || 'uploads\\85293eb39aeaa8a22c9c463deaa3ca88';
+    const absolutePath = join(process.cwd(), testFile);
+    const scriptPath = join(process.cwd(), 'backend', 'whisper_service.py');
+    
+    console.log('Testing:', { scriptPath, audioPath: absolutePath });
+    
+    const { stdout, stderr } = await execAsync(
+      `python "${scriptPath}" "${absolutePath}" tiny`,
+      { maxBuffer: 10 * 1024 * 1024, timeout: 300000 }
+    );
+    
+    res.json({
+      success: true,
+      stdout,
+      stderr,
+      parsed: JSON.parse(stdout)
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      stdout: error.stdout,
+      stderr: error.stderr,
+      code: error.code
+    });
+  }
+});
+
+// Whisper transcription endpoint (backend-based)
+app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    const audioPath = req.file.path;
+    console.log('🎤 Transcribing audio with Whisper:', audioPath);
+    console.log('Full path:', join(process.cwd(), audioPath));
+
+    // Check if Python and Whisper are available
+    try {
+      await execAsync('python --version');
+    } catch (error) {
+      return res.status(500).json({
+        error: 'Python not found. Please install Python 3.8+ to use Whisper transcription.',
+        fallback: true
+      });
+    }
+
+    // Run Whisper transcription
+    try {
+      // Use path.resolve to get absolute path and handle Windows paths
+      const absolutePath = join(process.cwd(), audioPath);
+      const scriptPath = join(process.cwd(), 'backend', 'whisper_service.py');
+      
+      console.log('Running Whisper:', { scriptPath, audioPath: absolutePath, model: WHISPER_MODEL, language: WHISPER_LANGUAGE });
+      
+      // Set timeout to 5 minutes
+      const { stdout, stderr } = await execAsync(
+        `python "${scriptPath}" "${absolutePath}" ${WHISPER_MODEL} ${WHISPER_LANGUAGE}`,
+        { 
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+          timeout: 300000 // 5 minutes timeout
+        }
+      );
+
+      console.log('Whisper completed');
+      console.log('Whisper stdout:', stdout);
+      
+      const result = JSON.parse(stdout);
+
+      // Clean up uploaded file
+      fs.unlinkSync(audioPath);
+
+      if (result.status === 'error') {
+        return res.status(500).json({ error: result.error, fallback: true });
+      }
+
+      res.json({
+        text: result.text,
+        status: 'completed',
+        model: WHISPER_MODEL,
+        language: WHISPER_LANGUAGE
+      });
+    } catch (error) {
+      // Clean up on error
+      if (fs.existsSync(audioPath)) {
+        fs.unlinkSync(audioPath);
+      }
+
+      console.error('Whisper transcription error:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stdout:', error.stdout);
+      console.error('Error stderr:', error.stderr);
+      
+      // Check if it's a missing dependency issue
+      if (error.message.includes('ModuleNotFoundError') || error.message.includes('whisper')) {
+        return res.status(500).json({
+          error: 'Whisper not installed. Run: pip install openai-whisper',
+          fallback: true
+        });
+      }
+
+      // Include stderr in error message for debugging
+      const errorDetails = error.stderr || error.message;
+      res.status(500).json({
+        error: 'Transcription failed: ' + errorDetails,
+        fallback: true
+      });
+    }
+  } catch (error) {
+    console.error('Transcription endpoint error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -569,5 +1164,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 Ollama URL: ${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}`);
   console.log(`🤖 Default model: ${process.env.DEFAULT_MODEL || 'llama3.2:3b'}`);
+  console.log(`🎤 Whisper: Backend transcription available`);
 });
 
