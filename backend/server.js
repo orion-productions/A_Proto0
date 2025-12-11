@@ -797,7 +797,7 @@ app.get('/api/llm/status', async (req, res) => {
 // Stop/unload a model (helps re-evaluate GPU usage)
 app.post('/api/llm/stop', async (req, res) => {
   const { model } = req.body;
-  const targetModel = model || process.env.DEFAULT_MODEL || 'llama3.2:3b';
+  const targetModel = model || process.env.DEFAULT_MODEL || 'deepseek-r1:1.5b';
   const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   try {
     await axios.post(`${ollamaUrl}/api/stop`, { name: targetModel });
@@ -812,7 +812,7 @@ app.post('/api/llm/stop', async (req, res) => {
 // Warm up / load a specific Ollama model (non-streaming)
 app.post('/api/llm/warmup', async (req, res) => {
   const { model } = req.body;
-  const targetModel = model || process.env.DEFAULT_MODEL || 'llama3.2:3b';
+  const targetModel = model || process.env.DEFAULT_MODEL || 'deepseek-r1:1.5b';
   const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
   try {

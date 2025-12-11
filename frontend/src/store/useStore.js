@@ -20,7 +20,7 @@ const useStore = create((set, get) => ({
   scratchpadContent: localStorage.getItem('scratchpad') || '',
   
   // LLM state
-  selectedModel: localStorage.getItem('selectedModel') || 'llama3.2:3b',
+  selectedModel: localStorage.getItem('selectedModel') || 'deepseek-r1:1.5b',
   availableModels: [],
   ollamaStatus: { state: 'idle', message: '', progress: 0 },
   

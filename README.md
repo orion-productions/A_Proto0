@@ -4,7 +4,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 
 ## Features
 
-- 🤖 **LLM Integration**: Chat with Ollama models (default: llama3.2:3b)
+- 🤖 **LLM Integration**: Chat with Ollama models (default: deepseek-r1:1.5b)
 - 🔧 **MCP Tools**: Weather lookup and calculator tools
 - 🎤 **Voice Controls**: Speech-to-text and text-to-speech
 - 📝 **Chat Management**: Create, save, and manage multiple chat sessions
