@@ -30,7 +30,7 @@ function AgentSection() {
                 <div
                   key={tool.id}
                   onClick={() => toggleTool(tool.id)}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                  className={`p-2 rounded-lg cursor-pointer transition-colors ${
                     isActive
                       ? 'bg-blue-600 hover:bg-blue-700 animate-pulse'
                       : isSelected
@@ -38,16 +38,14 @@ function AgentSection() {
                       : 'bg-gray-700 hover:bg-gray-600'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="font-semibold text-sm flex items-center gap-2">
-                        {tool.name}
-                        {isActive && <span className="text-xs">🔧 Active</span>}
-                      </div>
-                      <div className="text-xs text-gray-300 mt-1">{tool.description}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0 text-xs text-gray-100 flex items-center gap-2">
+                      <span className="font-semibold truncate">{tool.name}</span>
+                      <span className="text-[11px] text-gray-300 truncate">{tool.description}</span>
+                      {isActive && <span className="text-[11px]">🔧 Active</span>}
                     </div>
                     {isSelected && (
-                      <Check size={18} className="ml-2 flex-shrink-0" />
+                      <Check size={14} className="ml-1 flex-shrink-0" />
                     )}
                   </div>
                 </div>

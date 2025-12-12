@@ -9,10 +9,12 @@ function LeftPanel() {
     chats,
     currentChatId,
     scratchpadContent,
+    leftPanelSizes,
     setChats,
     setCurrentChatId,
     setScratchpadContent,
-    setMessages
+    setMessages,
+    setLeftPanelSizes
   } = useStore();
 
   const [editingChatId, setEditingChatId] = useState(null);
@@ -91,8 +93,8 @@ function LeftPanel() {
 
   return (
     <div className="h-full bg-gray-800">
-      <PanelGroup direction="vertical">
-        <Panel defaultSize={70} minSize={30}>
+      <PanelGroup direction="vertical" onLayout={setLeftPanelSizes}>
+        <Panel defaultSize={leftPanelSizes[0]} minSize={30}>
           <div className="h-full flex flex-col overflow-hidden">
             <div className="p-4 border-b border-gray-700">
               <button
@@ -120,6 +122,7 @@ function LeftPanel() {
                           ? 'bg-blue-600'
                           : 'bg-gray-700 hover:bg-gray-600'
                       }`}
+                      title={chat.title}
                     >
                       <MessageSquare size={18} />
                       
@@ -174,7 +177,7 @@ function LeftPanel() {
 
         <PanelResizeHandle className="h-1 bg-gray-700 hover:bg-blue-500 transition-colors" />
 
-        <Panel defaultSize={30} minSize={15}>
+        <Panel defaultSize={leftPanelSizes[1]} minSize={15}>
           <div className="h-full flex flex-col">
             <div className="p-2 bg-gray-750 font-semibold text-sm border-t border-gray-700">Scratchpad</div>
             <textarea

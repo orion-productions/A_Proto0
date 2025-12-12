@@ -9,6 +9,8 @@ const useStore = create((set, get) => ({
   
   // Panel sizes (persisted)
   panelSizes: JSON.parse(localStorage.getItem('panelSizes') || '[20, 50, 30]'),
+  leftPanelSizes: JSON.parse(localStorage.getItem('leftPanelSizes') || '[70, 30]'),
+  rightPanelSizes: JSON.parse(localStorage.getItem('rightPanelSizes') || '[40, 30, 30]'),
   
   // Chat state
   chats: [],
@@ -41,6 +43,14 @@ const useStore = create((set, get) => ({
   setPanelSizes: (sizes) => {
     localStorage.setItem('panelSizes', JSON.stringify(sizes));
     set({ panelSizes: sizes });
+  },
+  setLeftPanelSizes: (sizes) => {
+    localStorage.setItem('leftPanelSizes', JSON.stringify(sizes));
+    set({ leftPanelSizes: sizes });
+  },
+  setRightPanelSizes: (sizes) => {
+    localStorage.setItem('rightPanelSizes', JSON.stringify(sizes));
+    set({ rightPanelSizes: sizes });
   },
   
   setChats: (chats) => set({ chats }),
