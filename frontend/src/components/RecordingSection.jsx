@@ -592,18 +592,35 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
           </div>
         )}
 
-        {/* Spectrogram with live subtitles */}
-        <div className="mb-3">
-          <Spectrogram 
-            audioStream={audioStream} 
-            isRecording={isRecording} 
-            liveTranscript={realtimeTranscript || transcript}
-            audioFileInfo={audioFileInfo}
-            savedTranscriptInfo={savedTranscriptInfo}
-          />
-        </div>
-
-        {renderInfoPanels()}
+        {/* Spectrogram while recording; otherwise show info block with tooltips */}
+        {isRecording ? (
+          <div className="mb-3">
+            <Spectrogram 
+              audioStream={audioStream} 
+              isRecording={isRecording} 
+              liveTranscript={realtimeTranscript || transcript}
+              audioFileInfo={audioFileInfo}
+              savedTranscriptInfo={savedTranscriptInfo}
+            />
+          </div>
+        ) : (
+          <div
+            className="mb-3 bg-gray-900 rounded-lg p-3 text-sm text-gray-200 space-y-1"
+            title={
+              `Audio File name: ${audioFileInfo?.fileName || 'n/a'}\n` +
+              `Audio File Size: ${audioFileInfo?.fileSize ? Math.round(audioFileInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
+              `Duration: ${audioFileInfo?.duration ? Math.round(audioFileInfo.duration) + 's' : 'n/a'}\n` +
+              `Recorded at: ${audioFileInfo?.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}\n` +
+              `Transcript File Name: ${savedTranscriptInfo?.title || 'n/a'}\n` +
+              `Transcript File size: ${savedTranscriptInfo?.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
+              `Word Count: ${savedTranscriptInfo?.wordCount || 'n/a'}\n` +
+              `Transcribed at: ${savedTranscriptInfo?.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
+            }
+          >
+            <div>Audio File name: <span className="font-semibold">{audioFileInfo?.fileName || 'n/a'}</span></div>
+            <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo?.title || 'n/a'}</span></div>
+          </div>
+        )}
 
         {/* Transcription Progress */}
         {isTranscribing && (
