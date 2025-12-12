@@ -38,9 +38,9 @@ function AgentSection() {
                       : 'bg-gray-700 hover:bg-gray-600'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2" title={`${tool.name} — ${tool.description}`}>
                     <div className="flex-1 min-w-0 text-xs text-gray-100 flex items-center gap-2">
-                      <span className="font-semibold truncate">{tool.name}</span>
+                      <span className="font-semibold">{tool.name}</span>
                       <span className="text-[11px] text-gray-300 truncate">{tool.description}</span>
                       {isActive && <span className="text-[11px]">🔧 Active</span>}
                     </div>

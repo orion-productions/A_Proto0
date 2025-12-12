@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Upload, FileAudio, Loader2, CheckCircle2 } from 'lucide-react';
+import { Mic, Square, Upload, FileAudio, Loader2, CheckCircle2, CalendarDays, FileText } from 'lucide-react';
 import useStore from '../store/useStore';
 import { api } from '../api/api';
 import Spectrogram from './Spectrogram';
@@ -17,6 +17,9 @@ function RecordingSection() {
   const [realtimeTranscript, setRealtimeTranscript] = useState('');
   const [audioFileInfo, setAudioFileInfo] = useState(null); // Store audio file metadata
   const [savedTranscriptInfo, setSavedTranscriptInfo] = useState(null); // Store saved transcript metadata
+  const [audioHistory, setAudioHistory] = useState([]);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const audioBlobRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
@@ -64,6 +67,7 @@ function RecordingSection() {
 
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        audioBlobRef.current = audioBlob;
         setAudioStream(null);
         
         // Stop real-time transcription
@@ -128,25 +132,21 @@ function RecordingSection() {
           recordingTime: recordingTime.toISOString(),
           type: 'recording'
         });
+        setAudioHistory((prev) => [
+          ...prev,
+          {
+            fileName: 'recording.webm',
+            fileSize: audioBlob.size,
+            duration: actualDuration,
+            recordingTime: recordingTime.toISOString(),
+            type: 'recording'
+          }
+        ]);
         
         // Clear transcript info - will be set after saving
         setSavedTranscriptInfo(null);
         
         console.log('✅ Audio file info set - spectrogram should show "transcript not available yet"');
-        
-        // STEP 2: Transcribe using Whisper (accurate and reliable)
-        console.log('🎙️ Recording stopped - starting Whisper transcription...');
-        
-        // Clear real-time transcript (it was just a preview)
-        setRealtimeTranscript('');
-        accumulatedTranscriptRef.current = '';
-        
-        // Transcribe the audio blob using Whisper
-        await transcribeAudio(audioBlob, recordingTime);
-        
-        // Clear the real-time transcript preview
-        setRealtimeTranscript('');
-        accumulatedTranscriptRef.current = '';
         
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
@@ -275,6 +275,16 @@ function RecordingSection() {
           recordingTime: recordingTime ? recordingTime.toISOString() : new Date().toISOString(),
           type: audioBlob instanceof File ? 'uploaded' : 'recording'
         });
+        setAudioHistory((prev) => [
+          ...prev,
+          {
+            fileName,
+            fileSize,
+            duration: actualDuration,
+            recordingTime: recordingTime ? recordingTime.toISOString() : new Date().toISOString(),
+            type: audioBlob instanceof File ? 'uploaded' : 'recording'
+          }
+        ]);
       }
       
       // Use Whisper for transcription (backend-based, reliable)
@@ -353,16 +363,148 @@ function RecordingSection() {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      console.log('📁 Transcribing uploaded file with Whisper...');
+      audioBlobRef.current = file;
       setTranscript('');
-      setTranscriptionStatus('processing');
+      setTranscriptionStatus('idle');
       setSavedTranscriptInfo(null); // Clear previous transcript info
-      await transcribeAudio(file);
+      // Set audio info but do not auto-transcribe
+      const recordingTime = new Date().toISOString();
+      const audioUrl = URL.createObjectURL(file);
+      const audio = new Audio(audioUrl);
+      let duration = 0;
+      try {
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 1500);
+          audio.onloadedmetadata = () => {
+            duration = audio.duration;
+            clearTimeout(timeout);
+            resolve();
+          };
+          audio.onerror = () => resolve();
+        });
+      } finally {
+        URL.revokeObjectURL(audioUrl);
+      }
+      setAudioFileInfo({
+        fileName: file.name,
+        fileSize: file.size,
+        duration: duration || Math.round((file.size / 1024) * 0.06),
+        recordingTime,
+        type: 'uploaded'
+      });
+      setAudioHistory((prev) => [
+        ...prev,
+        {
+          fileName: file.name,
+          fileSize: file.size,
+          duration: duration || Math.round((file.size / 1024) * 0.06),
+          recordingTime,
+          type: 'uploaded'
+        }
+      ]);
     }
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  // Calendar view (simple weekly list)
+  const renderCalendar = () => {
+    if (!audioHistory.length) {
+      return <div className="text-sm text-gray-300 p-3">No audio files yet.</div>;
+    }
+    return (
+      <div className="p-3 text-sm text-gray-200 space-y-2 max-h-64 overflow-y-auto">
+        {audioHistory.map((item, idx) => (
+          <div key={idx} className="bg-gray-700 rounded p-2 flex justify-between items-center">
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold truncate" title={item.fileName}>{item.fileName}</div>
+              <div className="text-xs text-gray-300">
+                {new Date(item.recordingTime).toLocaleString()} • {Math.round(item.duration)}s
+              </div>
+            </div>
+            <button
+              className="ml-2 text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
+              onClick={() => {
+                setAudioFileInfo(item);
+                setShowCalendar(false);
+              }}
+            >
+              Select
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderInfoPanels = () => {
+    const audioTooltip = audioFileInfo
+      ? `Audio File: ${audioFileInfo.fileName || 'n/a'}
+Size: ${Math.round((audioFileInfo.fileSize || 0) / 1024)} KB
+Duration: ${audioFileInfo.duration ? Math.round(audioFileInfo.duration) + 's' : 'n/a'}
+Recorded at: ${audioFileInfo.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}`
+      : 'No audio selected';
+
+    const transcriptTooltip = savedTranscriptInfo
+      ? `Transcript File: ${savedTranscriptInfo.title || 'n/a'}
+Size: ${savedTranscriptInfo.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}
+Word Count: ${savedTranscriptInfo.wordCount || 'n/a'}
+Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
+      : 'No transcript yet';
+
+    return (
+      <div className="bg-gray-900 rounded-lg p-3 mb-3 flex flex-col md:flex-row gap-3">
+        <div className="flex-1 min-w-0" title={audioTooltip}>
+          <div className="text-xs text-gray-400 mb-1 font-semibold">Audio</div>
+          {audioFileInfo ? (
+            <div className="text-sm text-gray-200 space-y-1">
+              <div>Audio File name: <span className="font-semibold">{audioFileInfo.fileName}</span></div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">No audio selected</div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0" title={transcriptTooltip}>
+          <div className="text-xs text-gray-400 mb-1 font-semibold">Transcript</div>
+          {savedTranscriptInfo ? (
+            <div className="text-sm text-gray-200 space-y-1">
+              <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo.title}</span></div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">No transcript yet</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const handleManualTranscribe = async () => {
+    if (!audioBlobRef.current) {
+      alert('No audio file available. Please record or upload first.');
+      return;
+    }
+    setTranscriptionStatus('processing');
+    setTranscript('');
+    setSavedTranscriptInfo(null);
+    await transcribeAudio(audioBlobRef.current);
+  };
+
+  const handleLoadTranscriptFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    setTranscript(text);
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    const info = {
+      id: file.name,
+      title: file.name,
+      wordCount,
+      savedAt: new Date().toISOString()
+    };
+    setSavedTranscriptInfo(info);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -374,11 +516,11 @@ function RecordingSection() {
       
       <div className="flex-1 p-3 overflow-y-auto flex flex-col">
         {/* Controls */}
-        <div className="flex gap-2 mb-3">
+        <div className="flex gap-2 mb-3 items-center">
           {!isRecording ? (
             <button
               onClick={startRecording}
-              className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg transition-colors"
+              className="flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg transition-colors"
             >
               <Mic size={18} />
               Record
@@ -386,7 +528,7 @@ function RecordingSection() {
           ) : (
             <button
               onClick={stopRecording}
-              className="flex-1 flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg transition-colors"
+              className="flex items-center justify-center gap-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-3 rounded-lg transition-colors"
             >
               <Square size={18} />
               Stop
@@ -403,22 +545,65 @@ function RecordingSection() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isRecording || isTranscribing}
-            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 px-4 rounded-lg transition-colors"
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 px-3 rounded-lg transition-colors"
           >
             <Upload size={18} />
           </button>
+          <button
+            onClick={() => setShowCalendar(!showCalendar)}
+            className="flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg transition-colors"
+          >
+            <CalendarDays size={16} />
+            Calendar
+          </button>
+          <button
+            onClick={handleManualTranscribe}
+            disabled={isRecording || isTranscribing}
+            className={`flex items-center justify-center gap-2 ${isTranscribing ? 'bg-green-800' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 px-3 rounded-lg transition-colors`}
+            title="Manually trigger transcript for current audio file"
+          >
+            <FileText size={16} />
+            {isTranscribing ? `Transcribing... ${transcriptionProgress.progress || 0}%` : 'Transcript'}
+          </button>
+          <input
+            type="file"
+            accept=".txt"
+            className="hidden"
+            id="load-transcript-file"
+            onChange={handleLoadTranscriptFile}
+          />
+          <label
+            htmlFor="load-transcript-file"
+            className="flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg transition-colors cursor-pointer"
+            title="Load transcript from file"
+          >
+            <Upload size={16} />
+            Load Transcript
+          </label>
         </div>
 
-        {/* Spectrogram with live subtitles */}
-            <div className="mb-3">
-              <Spectrogram 
-                audioStream={audioStream} 
-                isRecording={isRecording} 
-                liveTranscript={realtimeTranscript || transcript}
-                audioFileInfo={audioFileInfo}
-                savedTranscriptInfo={savedTranscriptInfo}
-              />
+        {showCalendar && (
+          <div className="mb-3 bg-gray-800 rounded border border-gray-700">
+            <div className="px-3 py-2 text-sm font-semibold border-b border-gray-700 flex items-center justify-between">
+              <span>Calendar (latest audio files)</span>
+              <button className="text-xs text-blue-400 hover:underline" onClick={() => setShowCalendar(false)}>Close</button>
             </div>
+            {renderCalendar()}
+          </div>
+        )}
+
+        {/* Spectrogram with live subtitles */}
+        <div className="mb-3">
+          <Spectrogram 
+            audioStream={audioStream} 
+            isRecording={isRecording} 
+            liveTranscript={realtimeTranscript || transcript}
+            audioFileInfo={audioFileInfo}
+            savedTranscriptInfo={savedTranscriptInfo}
+          />
+        </div>
+
+        {renderInfoPanels()}
 
         {/* Transcription Progress */}
         {isTranscribing && (

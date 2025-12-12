@@ -11,6 +11,29 @@ const __dirname = dirname(__filename);
 const dbPath = join(cwd(), 'chats.db');
 const db = new Database(dbPath);
 
+const getTranscriptByFileName = (fileName) => {
+  if (!fileName) return { error: 'fileName is required' };
+  try {
+    const transcript = db.prepare(`
+      SELECT * FROM transcripts 
+      WHERE audio_file_name = ? OR title = ? 
+      ORDER BY created_at DESC LIMIT 1
+    `).get(fileName, fileName);
+    if (!transcript) return { error: `Transcript with file name "${fileName}" not found` };
+    return {
+      id: transcript.id,
+      title: transcript.title,
+      transcript_text: transcript.transcript_text,
+      audio_file_name: transcript.audio_file_name,
+      duration: transcript.duration,
+      created_at: transcript.created_at,
+      updated_at: transcript.updated_at,
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
 const splitSentences = (text) => {
   if (!text) return [];
   // Split on . ! ? plus common full-width punctuation, keep simple
@@ -146,6 +169,7 @@ export default {
   getTranscript,
   searchTranscripts,
   getLatestTranscript,
+  getTranscriptByFileName,
   findSentencesInLatest,
   summarizeKeywordInLatest,
   definition: [
@@ -173,8 +197,16 @@ export default {
                 type: 'string',
                 description: 'The transcript ID (required - must be obtained from get_transcripts first)',
               },
+              fileName: {
+                type: 'string',
+                description: 'Optional: transcript file name (audio file name or title) to resolve the transcript',
+              },
+              currentTranscript: {
+                type: 'boolean',
+                description: 'If true, use the latest transcript',
+              },
             },
-            required: ['transcriptId'],
+            required: [],
           },
         },
       },

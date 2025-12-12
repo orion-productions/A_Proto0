@@ -258,6 +258,20 @@ async function executeTool(toolName, params) {
         return transcriptsResult;
       case 'get_transcript':
         // If transcriptId is null, missing, or empty, use get_latest_transcript instead
+        if (params?.fileName) {
+          const byFile = mcpTools.getTranscriptByFileName(params.fileName);
+          if (byFile.error) {
+            return { error: byFile.error, suggestion: 'Try get_transcripts first or provide a valid fileName/transcriptId.' };
+          }
+          return byFile;
+        }
+        if (params?.currentTranscript) {
+          const latest = mcpTools.getLatestTranscript();
+          if (latest.error) {
+            return { error: latest.error, suggestion: 'No transcripts found. Please record a meeting first.' };
+          }
+          return latest;
+        }
         if (!params || !params.transcriptId || params.transcriptId === null || params.transcriptId === '') {
           console.log('get_transcript called without ID, using get_latest_transcript instead');
           const result = mcpTools.getLatestTranscript();
