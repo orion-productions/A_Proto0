@@ -210,6 +210,9 @@ function CenterPanel() {
             'get_transcript': 'transcripts',
             'search_transcripts': 'transcripts',
             'get_latest_transcript': 'transcripts',
+            // Math tools
+            'add_numbers': 'calculator',
+            'calculator': 'calculator',
           };
           
           if (toolEvent.type === 'call') {

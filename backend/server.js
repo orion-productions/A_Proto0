@@ -59,6 +59,16 @@ db.exec(`
 // Configure multer for file uploads
 const upload = multer({ dest: 'uploads/' });
 
+// Debug helper to log weather LLM responses
+function logWeatherDebug(payload) {
+  try {
+    const line = `${new Date().toISOString()} ${payload}\n`;
+    fs.appendFileSync(join(__dirname, 'weather-debug.log'), line);
+  } catch (err) {
+    console.error('weather debug log write failed:', err.message);
+  }
+}
+
 // MCP Tools are now imported from ./mcp-tools/index.js
 // See backend/mcp-tools/ directory for individual tool implementations
 
@@ -74,6 +84,8 @@ async function executeTool(toolName, params) {
       // Math tools
       case 'add_numbers':
         return mcpTools.add(params.a, params.b);
+      case 'calculator':
+        return mcpTools.calculator(params.expression);
       
       // Jira tools
       case 'get_jira_issue':
@@ -259,6 +271,10 @@ async function executeTool(toolName, params) {
         return mcpTools.searchTranscripts(params.query);
       case 'get_latest_transcript':
         return mcpTools.getLatestTranscript();
+      case 'find_sentences_in_latest_transcript':
+        return mcpTools.findSentencesInLatest(params.keyword);
+      case 'summarize_keyword_in_latest_transcript':
+        return mcpTools.summarizeKeywordInLatest(params.keyword);
       
       default:
         console.error(`Unknown tool: ${toolName}`);
@@ -391,7 +407,7 @@ app.post('/api/chats/:id/messages', (req, res) => {
 
 // LLM integration with tool calling support
 app.post('/api/llm/chat', async (req, res) => {
-  const { model, messages, provider, enableTools = true } = req.body;
+  const { model, messages, provider = 'ollama', enableTools = true } = req.body;
   
   try {
     if (provider === 'ollama') {
@@ -404,13 +420,16 @@ app.post('/api/llm/chat', async (req, res) => {
       
       let conversationMessages = [...messages];
       let toolCallsDetected = false;
+      let lastToolResult = null;
       
       // Detect if user query needs tools
-      const lastUserMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
+      const lastUserMessageRaw = messages[messages.length - 1]?.content || '';
+      const lastUserMessage = lastUserMessageRaw?.toLowerCase() || '';
       
       // Tool detection patterns
       const needsWeatherTool = /weather|temperature|forecast|climat|météo/i.test(lastUserMessage);
       const needsAddTool = /add|sum|plus|\+|calculate/i.test(lastUserMessage);
+      const needsMathTool = /(\d\s*[\+\-\*\/\^]\s*\d)|\b(sin|cos|tan|asin|acos|atan|exp|log|ln|sqrt|abs|min|max)\s*\(|\bpi\b|π|log\(/i.test(lastUserMessageRaw);
       const needsJiraTool = /jira|issue|project|ticket|bug|story|epic/i.test(lastUserMessage);
       const needsSlackTool = /slack|channel|message|workspace|thread/i.test(lastUserMessage);
       const needsGithubTool = /github|git|repository|repo|pull request|pr|issue|commit/i.test(lastUserMessage);
@@ -420,33 +439,143 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
       const needsDriveTool = /drive|file|document|folder|google drive|gdrive/i.test(lastUserMessage);
       const needsDiscordTool = /discord|guild|server|channel|dm|direct message/i.test(lastUserMessage);
-      const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage);
+      const sentenceQuery = /sentences?.*word/i.test(lastUserMessageRaw) || /sentences?.*appear/i.test(lastUserMessageRaw);
+      const mentionQuery = /\b(mention|talk about|about)\s+["']?[A-Za-z0-9\- ]+/i.test(lastUserMessageRaw);
+      const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage) || sentenceQuery || mentionQuery;
       
       const needsTools = needsWeatherTool || needsAddTool || needsJiraTool || 
                         needsSlackTool || needsGithubTool || needsPerforceTool || needsConfluenceTool ||
-                        needsGmailTool || needsCalendarTool || needsDriveTool || needsDiscordTool || needsTranscriptTool;
+                        needsGmailTool || needsCalendarTool || needsDriveTool || needsDiscordTool || needsTranscriptTool || needsMathTool;
       
       console.log('User message:', lastUserMessage);
       console.log('Needs tools:', needsTools);
       
-      // Fast-path transcript requests: call transcript tool directly so user always gets a response,
-      // even if the model fails to emit a tool call.
-      if (enableTools && needsTranscriptTool) {
-        // Send tool call + result events so the frontend shows MCP activity
-        res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
-        const toolResult = await executeTool('get_latest_transcript', {});
-        res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
-        
-        let content;
-        if (toolResult.error) {
-          content = `I couldn't fetch the transcript: ${toolResult.error}`;
-        } else {
+        // Fast-path transcript requests: fetch transcript and optionally summarize
+        if (enableTools && needsTranscriptTool) {
+        // Try to extract a keyword for sentence-level or mention queries
+        const sentenceKeywordMatch =
+          // sentences where the word X appears
+          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+["']?([A-Za-z0-9\-_]+)["']?/i) ||
+          // sentences where the word foo bar appears
+          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+([A-Za-z0-9\-_ ]+?)\s+appears?/i) ||
+          // quoted keyword
+          lastUserMessageRaw.match(/sentences?.*?(["'][^"']+["'])/i);
+        const mentionKeywordMatch =
+          lastUserMessageRaw.match(/\b(mention|talk about|about)\s+["']?([A-Za-z0-9\- ]+)["']?/i);
+
+        // If user asked for sentences containing a word, use find_sentences_in_latest_transcript
+        if (sentenceKeywordMatch) {
+          const keyword = (sentenceKeywordMatch[1] || '').replace(/["']/g, '').trim();
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'find_sentences_in_latest_transcript', params: { keyword } })}\n\n`);
+          const toolResult = await executeTool('find_sentences_in_latest_transcript', { keyword });
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'find_sentences_in_latest_transcript', result: toolResult })}\n\n`);
+
+          const content = toolResult?.error
+            ? `I couldn't search the transcript: ${toolResult.error}`
+            : (toolResult?.sentences?.length
+              ? `Found ${toolResult.sentences.length} sentence(s) with "${keyword}":\n\n${toolResult.sentences.join('\n')}`
+              : `No sentences found containing "${keyword}" in the latest transcript.`);
+
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+
+        // If user asked whether transcript mentions X or talks about X, summarize the keyword
+        if (mentionKeywordMatch) {
+          const keyword = (mentionKeywordMatch[2] || '').replace(/["']/g, '').trim();
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'summarize_keyword_in_latest_transcript', params: { keyword } })}\n\n`);
+          const toolResult = await executeTool('summarize_keyword_in_latest_transcript', { keyword });
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'summarize_keyword_in_latest_transcript', result: toolResult })}\n\n`);
+
+          const content = toolResult?.error
+            ? `I couldn't summarize "${keyword}": ${toolResult.error}`
+            : (toolResult?.summary || `Mentions of "${keyword}":\n\n${(toolResult.sentences || []).join('\n')}`);
+
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+
+          // Send tool call + result events so the frontend shows MCP activity
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
+          const toolResult = await executeTool('get_latest_transcript', {});
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
+          
+          const wantsSummary = /summary|summarize|brief|short version/i.test(lastUserMessage);
           const title = toolResult.title || 'Latest transcript';
           const body = toolResult.transcript_text || '(no content)';
-          content = `Here is ${title}:\n\n${body}`;
+          
+          // If user asked to summarize, try LLM summary with fallback
+          if (wantsSummary && !toolResult.error) {
+            try {
+              const summaryPrompt = [
+                { role: 'system', content: 'Summarize the following transcript in a few concise sentences.' },
+                { role: 'user', content: `Title: ${title}\nTranscript:\n${body}` }
+              ];
+              const summaryResp = await axios.post(`${ollamaUrl}/api/chat`, {
+                model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
+                messages: summaryPrompt,
+                stream: false
+              }, { timeout: 20000 });
+              
+              const summary = summaryResp.data?.message?.content?.trim();
+              const content = summary || `Here is ${title} (summary unavailable):\n\n${body}`;
+              res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              res.write('data: [DONE]\n\n');
+              return res.end();
+            } catch (err) {
+              const fallback = `Here is ${title} (summary failed):\n\n${body}`;
+              res.write(`data: ${JSON.stringify({ content: fallback })}\n\n`);
+              res.write('data: [DONE]\n\n');
+              return res.end();
+            }
+          }
+
+          // Default: return full transcript (or error)
+          let content;
+          if (toolResult.error) {
+            content = `I couldn't fetch the transcript: ${toolResult.error}`;
+          } else {
+            content = `Here is ${title}:\n\n${body}`;
+          }
+          
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
         }
-        
-        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+
+      // Fast-path math/calculator: deterministic tool execution for expressions
+      if (enableTools && needsMathTool) {
+        // Extract expression from the user message (strip helper phrases)
+        let expr = lastUserMessageRaw.replace(/[?!？！，、。]+$/g, '').trim();
+        expr = expr.replace(/^(what\s+is|what's|calculate|compute|eval(uate)?|please\s+compute|please\s+calculate|can\s+you\s+compute|can\s+you\s+calculate)\s+/i, '');
+        expr = expr.replace(/^(the\s+value\s+of\s+)/i, '');
+        expr = expr.trim();
+
+        // If still empty, fall back to the raw (punctuation-stripped) message
+        if (!expr) {
+          expr = lastUserMessageRaw.replace(/[?!？！，、。]+$/g, '').trim();
+        }
+
+        res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'calculator', params: { expression: expr } })}\n\n`);
+        const toolResult = await executeTool('calculator', { expression: expr });
+        res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'calculator', result: toolResult })}\n\n`);
+
+        let finalContent;
+        if (toolResult?.error) {
+          finalContent = `Calculator error: ${toolResult.error}`;
+        } else {
+          finalContent = `Result: ${toolResult.result}`;
+        }
+
+        res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
+        const chunkSize = 5;
+        for (let i = 0; i < finalContent.length; i += chunkSize) {
+          const chunk = finalContent.slice(i, i + chunkSize);
+          res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
         res.write('data: [DONE]\n\n');
         return res.end();
       }
@@ -500,35 +629,62 @@ app.post('/api/llm/chat', async (req, res) => {
           const toolResult = await executeTool('get_weather', { city });
           res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_weather', result: toolResult })}\n\n`);
           
-          // Generate a natural response using the LLM with the tool result
-          const weatherMessages = [...messages];
-          weatherMessages.push({
-            role: 'assistant',
-            content: `I checked the weather for ${city}. Here's what I found: ${JSON.stringify(toolResult)}. Please provide a natural language response to the user.`
-          });
-          
-          // Get final response from LLM
-          const finalResponse = await axios.post(`${ollamaUrl}/api/chat`, {
-            model: model || 'llama3.2:3b',
-            messages: weatherMessages,
-            stream: false
-          }, {
-            timeout: 30000 // 30 second timeout for final response
-          });
-          
-          const finalContent = finalResponse.data.message.content || '';
-          res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
-          
-          // Stream the final content
-          const chunkSize = 5;
-          for (let i = 0; i < finalContent.length; i += chunkSize) {
-            const chunk = finalContent.slice(i, i + chunkSize);
-            res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
-            await new Promise(resolve => setTimeout(resolve, 20));
+          // Concise summary for LLM (use only current request context to avoid prior city bleed)
+          let summary;
+          if (toolResult?.error) {
+            summary = `Error for ${city}: ${toolResult.error}`;
+          } else {
+            const t = toolResult;
+            summary = `${t?.location || city}: ${t?.conditions || 'N/A'}, ${t?.temperature || 'N/A'}, feels like ${t?.feels_like || 'N/A'}, humidity ${t?.humidity || 'N/A'}, wind ${t?.wind_speed || 'N/A'}, precipitation ${t?.precipitation || 'N/A'}`;
           }
+
+          // Generate a natural response using ONLY this request (no prior conversation to avoid cross-city contamination)
+          const weatherMessages = [
+            { role: 'system', content: 'You are a concise assistant. Answer with the provided weather summary only. Do not ask questions. Do not mix with prior context.' },
+            { role: 'assistant', content: `Weather summary for ${city}: ${summary}` },
+            { role: 'user', content: 'Reply to the user with this weather information.' }
+          ];
           
-          res.write('data: [DONE]\n\n');
-          return res.end();
+          try {
+            // Get final response from LLM
+            const finalResponse = await axios.post(`${ollamaUrl}/api/chat`, {
+              model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
+              messages: weatherMessages,
+              options: { temperature: 0.2, top_p: 0.9 },
+              stream: false
+            }, {
+              timeout: 30000 // 30 second timeout for final response
+            });
+            
+            console.log('Weather LLM raw response:', JSON.stringify(finalResponse.data || {}, null, 2));
+            logWeatherDebug(`success response: ${JSON.stringify(finalResponse.data || {}, null, 2)}`);
+
+            let finalContent = finalResponse.data?.message?.content?.trim() || '';
+            if (!finalContent) {
+              finalContent = 'LLM returned empty content for weather response.';
+            }
+
+            res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
+            
+            // Stream the final content
+            const chunkSize = 5;
+            for (let i = 0; i < finalContent.length; i += chunkSize) {
+              const chunk = finalContent.slice(i, i + chunkSize);
+              res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+              await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          } catch (err) {
+            console.error('Weather LLM call failed:', err.message, err.response?.data);
+            logWeatherDebug(`error: ${err.message} response: ${JSON.stringify(err.response?.data || null)}`);
+            const fallback = `Weather response failed: ${err.message}`;
+            res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
+            res.write(`data: ${JSON.stringify({ content: fallback })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
         }
       }
       
@@ -560,9 +716,12 @@ IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
 
 After using a tool, you'll receive the result and should provide a natural language response to the user.`;
         
+        const arithmeticHint = `\nFor arithmetic expressions (e.g., "5+1", "12.3*4", "sin(pi/2)+log(10)+3^2"), use the calculator tool with an expression string.`;
+        const fullInstructions = toolInstructions + arithmeticHint;
+        
         conversationMessages.unshift({
           role: 'system',
-          content: toolInstructions
+          content: fullInstructions
         });
       }
       
@@ -572,7 +731,7 @@ After using a tool, you'll receive the result and should provide a natural langu
         maxIterations--;
         
         const requestBody = {
-          model: model || 'llama3.2:3b',
+          model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
           messages: conversationMessages,
           stream: false
         };
@@ -629,6 +788,7 @@ After using a tool, you'll receive the result and should provide a natural langu
             console.log(`Executing tool: ${toolName} with params:`, toolParams);
             const toolResult = await executeTool(toolName, toolParams);
             console.log(`Tool result:`, toolResult);
+            lastToolResult = toolResult;
             
             // Send tool result to frontend
             res.write(`data: ${JSON.stringify({ 
@@ -706,8 +866,30 @@ After using a tool, you'll receive the result and should provide a natural langu
             res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
             await new Promise(resolve => setTimeout(resolve, 20)); // Small delay for streaming effect
           }
+          res.write('data: [DONE]\n\n');
+          res.end();
+          break;
+        }
+
+        // If we reach here and tools were used but the model returned no content, synthesize a fallback from the last tool result
+        if (toolCallsDetected) {
+          const fallback = lastToolResult
+            ? `Here is the result from the tool: ${JSON.stringify(lastToolResult)}`
+            : 'Tools were executed, but no response was generated.';
+          res.write(`data: ${JSON.stringify({ type: 'final_response' })}\n\n`);
+          const chunkSize = 5;
+          for (let i = 0; i < fallback.length; i += chunkSize) {
+            const chunk = fallback.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          res.write('data: [DONE]\n\n');
+          res.end();
+          break;
         }
         
+        // If no tools and no content, return a generic error to avoid silence
+        res.write(`data: ${JSON.stringify({ content: 'No response generated.' })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
         break;
@@ -797,7 +979,7 @@ app.get('/api/llm/status', async (req, res) => {
 // Stop/unload a model (helps re-evaluate GPU usage)
 app.post('/api/llm/stop', async (req, res) => {
   const { model } = req.body;
-  const targetModel = model || process.env.DEFAULT_MODEL || 'deepseek-r1:1.5b';
+  const targetModel = model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b';
   const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   try {
     await axios.post(`${ollamaUrl}/api/stop`, { name: targetModel });
@@ -812,7 +994,7 @@ app.post('/api/llm/stop', async (req, res) => {
 // Warm up / load a specific Ollama model (non-streaming)
 app.post('/api/llm/warmup', async (req, res) => {
   const { model } = req.body;
-  const targetModel = model || process.env.DEFAULT_MODEL || 'deepseek-r1:1.5b';
+  const targetModel = model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b';
   const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
   try {
@@ -972,6 +1154,7 @@ app.get('/api/mcp/tools', (req, res) => {
   const toolCategories = {
     'weather': { id: 'weather', name: 'Weather', description: 'Get weather for a city', category: 'General' },
     'add': { id: 'add', name: 'Add Numbers', description: 'Add two numbers together', category: 'General' },
+    'calculator': { id: 'calculator', name: 'Calculator', description: 'Evaluate a math expression (add/subtract/multiply/divide)', category: 'General' },
     // Jira tools
     'jira': { id: 'jira', name: 'Jira', description: 'Read Jira issues, projects, and more', category: 'Jira' },
     // Slack tools
@@ -1163,7 +1346,7 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 Ollama URL: ${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}`);
-  console.log(`🤖 Default model: ${process.env.DEFAULT_MODEL || 'llama3.2:3b'}`);
+  console.log(`🤖 Default model: ${process.env.DEFAULT_MODEL || 'qwen2.5:1.5b'}`);
   console.log(`🎤 Whisper: Backend transcription available`);
 });
 

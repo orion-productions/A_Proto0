@@ -32,7 +32,7 @@ function SettingsModal() {
               onChange={(e) => setSelectedModel(e.target.value)}
               className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="llama3.2:3b">llama3.2:3b (Default)</option>
+              <option value="qwen2.5:1.5b">qwen2.5:1.5b (Default)</option>
               {availableModels.map(model => (
                 <option key={model.name} value={model.name}>
                   {model.name}

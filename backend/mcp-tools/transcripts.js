@@ -11,6 +11,52 @@ const __dirname = dirname(__filename);
 const dbPath = join(cwd(), 'chats.db');
 const db = new Database(dbPath);
 
+const splitSentences = (text) => {
+  if (!text) return [];
+  // Split on . ! ? plus common full-width punctuation, keep simple
+  return text
+    .split(/(?<=[\.!\?。！？])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+};
+
+const normalize = (s) => s?.toLowerCase() || '';
+
+const findSentencesInLatest = (keyword) => {
+  if (!keyword || !keyword.trim()) return { error: 'keyword is required' };
+  const latest = getLatestTranscript();
+  if (latest.error) return latest;
+  const sentences = splitSentences(latest.transcript_text);
+  const kw = normalize(keyword);
+  const matched = sentences.filter(s => normalize(s).includes(kw));
+  return {
+    transcriptId: latest.id,
+    title: latest.title,
+    keyword,
+    sentences: matched,
+    count: matched.length,
+  };
+};
+
+const summarizeKeywordInLatest = (keyword) => {
+  const result = findSentencesInLatest(keyword);
+  if (result.error) return result;
+  if (!result.count) {
+    return { keyword, summary: `No mentions of "${keyword}" in the latest transcript.`, sentences: [] };
+  }
+  // Simple extractive summary: return unique matched sentences (max 5)
+  const unique = Array.from(new Set(result.sentences));
+  const summary = unique.slice(0, 5).join(' ');
+  return {
+    transcriptId: result.transcriptId,
+    title: result.title,
+    keyword,
+    summary,
+    sentences: unique,
+    count: result.count,
+  };
+};
+
 // Get all transcripts
 const getTranscripts = () => {
   try {
@@ -100,6 +146,8 @@ export default {
   getTranscript,
   searchTranscripts,
   getLatestTranscript,
+  findSentencesInLatest,
+  summarizeKeywordInLatest,
   definition: [
       {
         type: 'function',
@@ -156,6 +204,40 @@ export default {
             type: 'object',
             properties: {},
             required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'find_sentences_in_latest_transcript',
+          description: 'Return all sentences from the latest transcript that contain the given keyword (case-insensitive). Use this to answer "give me the sentences where the word X appears".',
+          parameters: {
+            type: 'object',
+            properties: {
+              keyword: {
+                type: 'string',
+                description: 'Keyword to search for in sentences (e.g., "heart", "sound")',
+              },
+            },
+            required: ['keyword'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'summarize_keyword_in_latest_transcript',
+          description: 'Summarize what is said about a keyword in the latest transcript by returning the matched sentences and a short extractive summary. Use this for questions like "does this transcript mention X?" or "what do they say about X?".',
+          parameters: {
+            type: 'object',
+            properties: {
+              keyword: {
+                type: 'string',
+                description: 'Keyword to summarize (e.g., "heart", "sound")',
+              },
+            },
+            required: ['keyword'],
           },
         },
       },
