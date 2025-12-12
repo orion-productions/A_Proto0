@@ -4,12 +4,13 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, isAbsolute } from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { mcpTools, toolsDefinition } from './mcp-tools/index.js';
+import transcriptsStore from './mcp-tools/transcripts.js';
 
 const execAsync = promisify(exec);
 
@@ -20,6 +21,7 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base.en'; // better accuracy than tiny with moderate size
 const WHISPER_LANGUAGE = process.env.WHISPER_LANGUAGE || 'en';
+const PYTHON_BIN = process.env.PYTHON_PATH || 'python';
 
 // Middleware
 app.use(cors());
@@ -44,20 +46,27 @@ db.exec(`
     timestamp INTEGER NOT NULL,
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
   );
-
-  CREATE TABLE IF NOT EXISTS transcripts (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    transcript_text TEXT NOT NULL,
-    audio_file_name TEXT,
-    duration INTEGER,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
 `);
 
-// Configure multer for file uploads
-const upload = multer({ dest: 'uploads/' });
+// Audio storage directory (keep uploaded/recorded audio)
+const AUDIO_DIR = join(__dirname, 'audio');
+if (!fs.existsSync(AUDIO_DIR)) {
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+}
+
+// Configure multer for file uploads, preserving audio files
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, AUDIO_DIR),
+    filename: (req, file, cb) => {
+      const original = file.originalname || 'audio.webm';
+      const safeName = original.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const stamp = Date.now();
+      // Avoid collisions while keeping the original name visible
+      cb(null, `${stamp}-${safeName}`);
+    }
+  })
+});
 
 // Debug helper to log weather LLM responses
 function logWeatherDebug(payload) {
@@ -261,7 +270,7 @@ async function executeTool(toolName, params) {
         if (params?.fileName) {
           const byFile = mcpTools.getTranscriptByFileName(params.fileName);
           if (byFile.error) {
-            return { error: byFile.error, suggestion: 'Try get_transcripts first or provide a valid fileName/transcriptId.' };
+            return { error: byFile.error, suggestion: 'Transcript not found for that file name. Use get_transcripts to list available names or provide a valid transcriptId.' };
           }
           return byFile;
         }
@@ -362,40 +371,37 @@ app.put('/api/chats/:id', (req, res) => {
   res.json({ success: true, title, updated_at: timestamp });
 });
 
-// Transcripts API
+// Transcripts API (file-based)
 app.post('/api/transcripts', (req, res) => {
   const { title, transcript_text, audio_file_name, duration } = req.body;
-  const id = uuidv4();
-  const timestamp = Date.now();
-  
-  if (!transcript_text || typeof transcript_text !== 'string' || transcript_text.trim() === '') {
-    return res.status(400).json({ error: 'transcript_text is required' });
+  const result = transcriptsStore.saveTranscript({ title, transcript_text, audio_file_name, duration });
+  if (result.error) {
+    return res.status(400).json({ error: result.error });
   }
-  
-  db.prepare(`
-    INSERT INTO transcripts (id, title, transcript_text, audio_file_name, duration, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, title || 'Untitled Transcript', transcript_text, audio_file_name || null, duration || null, timestamp, timestamp);
-  
-  const transcript = db.prepare('SELECT * FROM transcripts WHERE id = ?').get(id);
-  res.json(transcript);
+  res.json(result);
 });
 
 app.get('/api/transcripts', (req, res) => {
-  const transcripts = db.prepare('SELECT * FROM transcripts ORDER BY created_at DESC').all();
-  res.json(transcripts);
+  const result = transcriptsStore.getTranscripts();
+  if (result.error) {
+    return res.status(500).json({ error: result.error });
+  }
+  res.json(result.transcripts);
 });
 
 app.get('/api/transcripts/:id', (req, res) => {
-  const transcript = db.prepare('SELECT * FROM transcripts WHERE id = ?').get(req.params.id);
-  if (!transcript) {
-    return res.status(404).json({ error: 'Transcript not found' });
+  const result = transcriptsStore.getTranscript(req.params.id);
+  if (result.error) {
+    return res.status(404).json({ error: result.error });
   }
-  res.json(transcript);
+  res.json(result);
 });
 
 app.delete('/api/transcripts/:id', (req, res) => {
-  db.prepare('DELETE FROM transcripts WHERE id = ?').run(req.params.id);
+  const result = transcriptsStore.deleteTranscript(req.params.id);
+  if (result.error) {
+    return res.status(404).json({ error: result.error });
+  }
   res.json({ success: true });
 });
 
@@ -466,6 +472,121 @@ app.post('/api/llm/chat', async (req, res) => {
       
         // Fast-path transcript requests: fetch transcript and optionally summarize
         if (enableTools && needsTranscriptTool) {
+        // Normalize smart quotes for matching
+        const transcriptMessage = lastUserMessageRaw.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
+        // Check for "latest/most recent/last transcript" intent (robust, including "transcript file")
+        const wantsLatestTranscript =
+          /latest|most recent|last/i.test(transcriptMessage) &&
+          /\btranscript\b/i.test(transcriptMessage);
+        const wantsLatestTranscriptFile =
+          /latest|most recent|last/i.test(transcriptMessage) &&
+          /(transcript\s+file|file\s+transcript)/i.test(transcriptMessage);
+
+        if (wantsLatestTranscript || wantsLatestTranscriptFile) {
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
+          const toolResult = await executeTool('get_latest_transcript', {});
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
+
+          const title = toolResult.title || 'Latest transcript';
+          const body = toolResult.transcript_text || '(no content)';
+          const content = toolResult.error
+            ? `I couldn't fetch the latest transcript: ${toolResult.error}`
+            : `Here is ${title}:\n\n${body}`;
+
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+
+        // Try to extract an explicit transcript file/name (robust to partial phrasing)
+        const transcriptNameMatch =
+          transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) || // quoted name after "transcript"
+          transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i) || // unquoted name after transcript
+          (transcriptMessage.toLowerCase().includes('transcript') && transcriptMessage.match(/["']([^"']+)["']/)) || // any quoted string if "transcript" present
+          null;
+
+        if (transcriptNameMatch) {
+          const fileName = (transcriptNameMatch[1] || '').trim();
+          const genericName = /^(file|transcript|latest|last|recent|most recent)$/i.test(fileName);
+          const wantsLatestByName = /latest|last|recent/i.test(transcriptMessage) && /file/i.test(fileName);
+          const wantsSummary = /summary|summarize|summarise|brief|short version|tl;dr/i.test(lastUserMessage);
+
+          // Treat generic or "latest ... file" captures as latest transcript
+          if (genericName || wantsLatestByName) {
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
+            const toolResult = await executeTool('get_latest_transcript', {});
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
+
+            const title = toolResult.title || 'Latest transcript';
+            const body = toolResult.transcript_text || '(no content)';
+            let content;
+            if (toolResult.error) {
+              content = `I couldn't fetch the latest transcript: ${toolResult.error}`;
+            } else if (wantsSummary) {
+              try {
+                const summaryPrompt = [
+                  { role: 'system', content: 'Summarize the following transcript in a few concise sentences.' },
+                  { role: 'user', content: `Title: ${title}\nTranscript:\n${body}` }
+                ];
+                const summaryResp = await axios.post(`${ollamaUrl}/api/chat`, {
+                  model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
+                  messages: summaryPrompt,
+                  stream: false
+                }, { timeout: 20000 });
+                const summary = summaryResp.data?.message?.content?.trim();
+                content = summary || `Here is ${title} (summary unavailable):\n\n${body}`;
+              } catch (err) {
+                content = `Here is ${title} (summary failed):\n\n${body}`;
+              }
+            } else {
+              content = `Here is ${title}:\n\n${body}`;
+            }
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
+
+          // Explicit non-generic name
+          if (fileName && !/^(file|transcript|latest|last|recent)$/i.test(fileName)) {
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_transcript', params: { fileName } })}\n\n`);
+            const toolResult = await executeTool('get_transcript', { fileName });
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_transcript', result: toolResult })}\n\n`);
+
+            let content;
+            if (toolResult.error) {
+              content = `I couldn't fetch the transcript "${fileName}": ${toolResult.error}${toolResult.suggestions ? `\nSuggestions: ${toolResult.suggestions.join(', ')}` : ''}`;
+            } else {
+              const title = toolResult.title || fileName;
+              const body = toolResult.transcript_text || '(no content)';
+              if (wantsSummary) {
+                try {
+                  const summaryPrompt = [
+                    { role: 'system', content: 'Summarize the following transcript in a few concise sentences.' },
+                    { role: 'user', content: `Title: ${title}\nTranscript:\n${body}` }
+                  ];
+                  const summaryResp = await axios.post(`${ollamaUrl}/api/chat`, {
+                    model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
+                    messages: summaryPrompt,
+                    stream: false
+                  }, { timeout: 20000 });
+                  const summary = summaryResp.data?.message?.content?.trim();
+                  content = summary || `Here is ${title} (summary unavailable):\n\n${body}`;
+                } catch (err) {
+                  content = `Here is ${title} (summary failed):\n\n${body}`;
+                }
+              } else {
+                content = `Here is ${title}:\n\n${body}`;
+              }
+            }
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
+        }
+
         // Try to extract a keyword for sentence-level or mention queries
         const sentenceKeywordMatch =
           // sentences where the word X appears
@@ -516,7 +637,7 @@ app.post('/api/llm/chat', async (req, res) => {
           const toolResult = await executeTool('get_latest_transcript', {});
           res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
           
-          const wantsSummary = /summary|summarize|brief|short version/i.test(lastUserMessage);
+          const wantsSummary = /summary|summarize|summarise|brief|short version|tl;dr/i.test(lastUserMessage);
           const title = toolResult.title || 'Latest transcript';
           const body = toolResult.transcript_text || '(no content)';
           
@@ -1282,7 +1403,7 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
 
     // Check if Python and Whisper are available
     try {
-      await execAsync('python --version');
+      await execAsync(`${PYTHON_BIN} --version`);
     } catch (error) {
       return res.status(500).json({
         error: 'Python not found. Please install Python 3.8+ to use Whisper transcription.',
@@ -1292,15 +1413,16 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
 
     // Run Whisper transcription
     try {
-      // Use path.resolve to get absolute path and handle Windows paths
-      const absolutePath = join(process.cwd(), audioPath);
+      // Use absolute path and keep audio file (no deletion)
+      // If multer already gave us an absolute path, use it; otherwise resolve relative to CWD
+      const absolutePath = isAbsolute(audioPath) ? audioPath : join(process.cwd(), audioPath);
       const scriptPath = join(process.cwd(), 'backend', 'whisper_service.py');
       
       console.log('Running Whisper:', { scriptPath, audioPath: absolutePath, model: WHISPER_MODEL, language: WHISPER_LANGUAGE });
       
       // Set timeout to 5 minutes
       const { stdout, stderr } = await execAsync(
-        `python "${scriptPath}" "${absolutePath}" ${WHISPER_MODEL} ${WHISPER_LANGUAGE}`,
+        `${PYTHON_BIN} "${scriptPath}" "${absolutePath}" ${WHISPER_MODEL} ${WHISPER_LANGUAGE}`,
         { 
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
           timeout: 300000 // 5 minutes timeout
@@ -1311,9 +1433,6 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
       console.log('Whisper stdout:', stdout);
       
       const result = JSON.parse(stdout);
-
-      // Clean up uploaded file
-      fs.unlinkSync(audioPath);
 
       if (result.status === 'error') {
         return res.status(500).json({ error: result.error, fallback: true });
@@ -1326,26 +1445,32 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
         language: WHISPER_LANGUAGE
       });
     } catch (error) {
-      // Clean up on error
-      if (fs.existsSync(audioPath)) {
-        fs.unlinkSync(audioPath);
-      }
-
       console.error('Whisper transcription error:', error);
       console.error('Error message:', error.message);
       console.error('Error stdout:', error.stdout);
       console.error('Error stderr:', error.stderr);
       
-      // Check if it's a missing dependency issue
-      if (error.message.includes('ModuleNotFoundError') || error.message.includes('whisper')) {
+      const stderr = error.stderr || '';
+      const stdout = error.stdout || '';
+      const msg = error.message || '';
+      const combined = `${stderr}\n${stdout}\n${msg}`.toLowerCase();
+
+      // Check for common dependency issues (narrow match to avoid false positives)
+      if (/modulenotfounderror.*whisper/.test(combined) || /no module named ['"]whisper['"]/.test(combined)) {
         return res.status(500).json({
-          error: 'Whisper not installed. Run: pip install openai-whisper',
+          error: 'Whisper Python package not installed. Run: pip install openai-whisper',
+          fallback: true
+        });
+      }
+      if (combined.includes('ffmpeg')) {
+        return res.status(500).json({
+          error: 'ffmpeg not found. Install ffmpeg and ensure it is on PATH.',
           fallback: true
         });
       }
 
-      // Include stderr in error message for debugging
-      const errorDetails = error.stderr || error.message;
+      // Include stderr/stdout for diagnosis
+      const errorDetails = error.stderr || error.stdout || error.message;
       res.status(500).json({
         error: 'Transcription failed: ' + errorDetails,
         fallback: true

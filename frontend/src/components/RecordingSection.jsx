@@ -26,6 +26,18 @@ function RecordingSection() {
   const recognitionRef = useRef(null);
   const accumulatedTranscriptRef = useRef(''); // Use ref to track accumulated transcript (avoids stale state)
   const progressTimerRef = useRef(null); // Smooth progress timer
+  const recordingStartRef = useRef(null); // Track start time to build unique file names
+
+  const formatSlugTs = (date) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const y = date.getFullYear();
+    const m = pad(date.getMonth() + 1);
+    const d = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const mm = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+    return `${y}${m}${d}-${hh}${mm}${ss}`;
+  };
 
   // Smoothly advance progress toward a target while work is in-flight
   const startSmoothProgress = (startValue, targetValue, step = 3, intervalMs = 300) => {
@@ -56,10 +68,17 @@ function RecordingSection() {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
       setAudioStream(stream);
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
+      recordingStartRef.current = new Date();
 
       mediaRecorderRef.current.ondataavailable = (event) => {
         audioChunksRef.current.push(event.data);
@@ -123,10 +142,12 @@ function RecordingSection() {
         }
         
         const recordingTime = new Date();
+        const baseName = `recording-${formatSlugTs(recordingStartRef.current || recordingTime)}`;
+        const audioFileName = `${baseName}.webm`;
         
         // STEP 1: Set audio file info immediately
         setAudioFileInfo({
-          fileName: 'recording.webm',
+          fileName: audioFileName,
           fileSize: audioBlob.size,
           duration: actualDuration,
           recordingTime: recordingTime.toISOString(),
@@ -135,7 +156,7 @@ function RecordingSection() {
         setAudioHistory((prev) => [
           ...prev,
           {
-            fileName: 'recording.webm',
+            fileName: audioFileName,
             fileSize: audioBlob.size,
             duration: actualDuration,
             recordingTime: recordingTime.toISOString(),
@@ -224,7 +245,9 @@ function RecordingSection() {
 
     try {
       // Get audio file info
-      const fileName = audioBlob instanceof File ? audioBlob.name : 'recording.webm';
+      const fileName = audioBlob instanceof File
+        ? audioBlob.name
+        : (audioFileInfo?.fileName || `recording-${formatSlugTs(recordingStartRef.current || new Date())}.webm`);
       const fileSize = audioBlob.size;
       
       // Get audio duration - wait for metadata to load
@@ -311,8 +334,9 @@ function RecordingSection() {
         
         // Save transcript to database so LLM can access it
         try {
+          const recordingTimeObj = audioFileInfo?.recordingTime ? new Date(audioFileInfo.recordingTime) : (recordingStartRef.current || new Date());
           const savedTranscript = await api.saveTranscript(
-            `Transcript ${recordingTime ? recordingTime.toLocaleString() : new Date().toLocaleString()}`,
+            fileName.replace(/\.webm$/i, '.transcript.json'),
             finalText,
             fileName,
             actualDuration
@@ -321,9 +345,12 @@ function RecordingSection() {
           // Store saved transcript info - this updates the spectrogram display
           const newTranscriptInfo = {
             id: savedTranscript.id,
-            title: savedTranscript.title,
+            title: savedTranscript.file_name || savedTranscript.title || `Transcript ${fileName}`,
             wordCount: wordCount,
-            savedAt: savedTranscript.created_at
+            savedAt: savedTranscript.created_at,
+            fileSize: savedTranscript.file_size,
+            fileName: savedTranscript.file_name || fileName.replace(/\.webm$/i, '.transcript.json'),
+            recordingTime: recordingTimeObj.toISOString()
           };
           
           setSavedTranscriptInfo(newTranscriptInfo);
@@ -350,8 +377,8 @@ function RecordingSection() {
       setTranscriptionProgress({ stage: 'completed', progress: 100 });
     } catch (error) {
       console.error('Error transcribing audio:', error);
-      const errorMsg = error.message || 'Transcription failed.';
-      setTranscript(`Error: ${errorMsg}\n\nPlease ensure you're using a modern browser (Chrome or Edge recommended).`);
+      const errorMsg = error?.response?.data?.error || error.message || 'Transcription failed.';
+      setTranscript(`Error: ${errorMsg}\n\nIf this persists, ensure Python + ffmpeg + "pip install openai-whisper" are available on the backend machine.`);
       setTranscriptionStatus('error');
       setTranscriptionProgress({ stage: 'error', progress: 0 });
     } finally {
@@ -447,8 +474,9 @@ Duration: ${audioFileInfo.duration ? Math.round(audioFileInfo.duration) + 's' : 
 Recorded at: ${audioFileInfo.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}`
       : 'No audio selected';
 
+    const transcriptDisplayName = savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a';
     const transcriptTooltip = savedTranscriptInfo
-      ? `Transcript File: ${savedTranscriptInfo.title || 'n/a'}
+      ? `Transcript File: ${transcriptDisplayName}
 Size: ${savedTranscriptInfo.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}
 Word Count: ${savedTranscriptInfo.wordCount || 'n/a'}
 Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
@@ -470,7 +498,7 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
           <div className="text-xs text-gray-400 mb-1 font-semibold">Transcript</div>
           {savedTranscriptInfo ? (
             <div className="text-sm text-gray-200 space-y-1">
-              <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo.title}</span></div>
+              <div>Transcript File Name: <span className="font-semibold">{transcriptDisplayName}</span></div>
             </div>
           ) : (
             <div className="text-sm text-gray-500">No transcript yet</div>
@@ -611,14 +639,14 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
               `Audio File Size: ${audioFileInfo?.fileSize ? Math.round(audioFileInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
               `Duration: ${audioFileInfo?.duration ? Math.round(audioFileInfo.duration) + 's' : 'n/a'}\n` +
               `Recorded at: ${audioFileInfo?.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}\n` +
-              `Transcript File Name: ${savedTranscriptInfo?.title || 'n/a'}\n` +
+              `Transcript File Name: ${savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a'}\n` +
               `Transcript File size: ${savedTranscriptInfo?.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
               `Word Count: ${savedTranscriptInfo?.wordCount || 'n/a'}\n` +
               `Transcribed at: ${savedTranscriptInfo?.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
             }
           >
             <div>Audio File name: <span className="font-semibold">{audioFileInfo?.fileName || 'n/a'}</span></div>
-            <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo?.title || 'n/a'}</span></div>
+            <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a'}</span></div>
           </div>
         )}
 
@@ -676,9 +704,6 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
                 <div>
                   <p className="mb-2">Start recording or upload an audio file</p>
                   <p className="text-xs">Supported formats: WebM, MP3, WAV, OGG, M4A, FLAC</p>
-                  <p className="text-xs text-yellow-400 mt-2">
-                    ⚠️ Note: File transcription accuracy may be limited. For best results, use the Record feature.
-                  </p>
                 </div>
               </div>
             )}
