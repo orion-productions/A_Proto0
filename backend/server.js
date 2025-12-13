@@ -296,8 +296,12 @@ async function executeTool(toolName, params) {
         return mcpTools.getLatestTranscript();
       case 'find_sentences_in_latest_transcript':
         return mcpTools.findSentencesInLatest(params.keyword);
+      case 'find_sentences_in_transcript':
+        return mcpTools.findSentencesInTranscript(params.fileName, params.keyword);
       case 'summarize_keyword_in_latest_transcript':
         return mcpTools.summarizeKeywordInLatest(params.keyword);
+      case 'summarize_keyword_in_transcript':
+        return mcpTools.summarizeKeywordInTranscript(params.fileName, params.keyword);
       
       default:
         console.error(`Unknown tool: ${toolName}`);
@@ -459,8 +463,11 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
       const needsDriveTool = /drive|file|document|folder|google drive|gdrive/i.test(lastUserMessage);
       const needsDiscordTool = /discord|guild|server|channel|dm|direct message/i.test(lastUserMessage);
-      const sentenceQuery = /sentences?.*word/i.test(lastUserMessageRaw) || /sentences?.*appear/i.test(lastUserMessageRaw);
-      const mentionQuery = /\b(mention|talk about|about)\s+["']?[A-Za-z0-9\- ]+/i.test(lastUserMessageRaw);
+      // More aggressive detection for sentence/mention queries
+      const sentenceQuery = /sentences?.*(?:word|appear|mentioned|containing|where)/i.test(lastUserMessageRaw);
+      const mentionQuery = /(?:is|are|was|were)\s+["']?[A-Za-z0-9\- ]+?\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw) ||
+                          /\b(mention|talk about|about)\s+["']?[A-Za-z0-9\- ]+/i.test(lastUserMessageRaw) ||
+                          /(?:where|which|that)\s+["']?[A-Za-z0-9\- ]+?\s+is\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw);
       const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage) || sentenceQuery || mentionQuery;
       
       const needsTools = needsWeatherTool || needsAddTool || needsJiraTool || 
@@ -469,6 +476,9 @@ app.post('/api/llm/chat', async (req, res) => {
       
       console.log('User message:', lastUserMessage);
       console.log('Needs tools:', needsTools);
+      if (needsTranscriptTool) {
+        console.log('[TRANSCRIPT] Transcript tool needed. Sentence query:', sentenceQuery, 'Mention query:', mentionQuery);
+      }
       
         // Fast-path transcript requests: fetch transcript and optionally summarize
         if (enableTools && needsTranscriptTool) {
@@ -499,7 +509,121 @@ app.post('/api/llm/chat', async (req, res) => {
           return res.end();
         }
 
-        // Try to extract an explicit transcript file/name (robust to partial phrasing)
+        // Try to extract a keyword for sentence-level or mention queries FIRST (before transcript name matching)
+        // Also check if a specific transcript filename was mentioned
+        const transcriptNameInSentenceQuery = transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) ||
+          transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i);
+        
+        const sentenceKeywordMatch =
+          // sentences where the word X appears
+          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+["']?([A-Za-z0-9\-_]+)["']?/i) ||
+          // sentences where the word foo bar appears
+          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+([A-Za-z0-9\-_ ]+?)\s+appears?/i) ||
+          // "sentences where X is mentioned" - more flexible pattern (MOST IMPORTANT - catches "sentences where 'Anna' is mentioned")
+          lastUserMessageRaw.match(/sentences?.*?where\s+["']?([A-Za-z0-9\-_ ]+?)["']?\s+is\s+mentioned/i) ||
+          // "sentences where X" or "sentences containing X"
+          lastUserMessageRaw.match(/sentences?.*?(?:where|containing|with)\s+["']?([A-Za-z0-9\-_ ]+?)(?:\s+is\s+mentioned|["']?)(?:\s|$|\.|\?)/i) ||
+          // "where the word X is mentioned" (doesn't require "sentences" at start) - catches "is there a place where the word 'Anna' is mentioned"
+          lastUserMessageRaw.match(/where\s+(?:the\s+)?\bword\b\s+["']?([A-Za-z0-9\-_ ]+?)["']?\s+is\s+mentioned/i) ||
+          // "where X is mentioned" (more general, doesn't require "sentences" or "word")
+          lastUserMessageRaw.match(/where\s+["']?([A-Za-z0-9\-_ ]+?)["']?\s+is\s+mentioned/i) ||
+          // quoted keyword (but not if it's a transcript filename) - catch "sentences where 'X'"
+          (!transcriptNameInSentenceQuery && lastUserMessageRaw.match(/sentences?.*?where\s+(["'][^"']+["'])/i)) ||
+          // quoted keyword anywhere in sentence query (but not if it's a transcript filename)
+          (!transcriptNameInSentenceQuery && lastUserMessageRaw.match(/sentences?.*?(["'][^"']+["'])/i)) ||
+          // simple: "sentences where X" 
+          lastUserMessageRaw.match(/sentences?.*?where\s+["']?([A-Za-z0-9\-_ ]+?)["']?(?:\s|$|\.|\?)/i);
+        
+        const mentionKeywordMatch =
+          // "where X is mentioned" or "that X is mentioned"
+          lastUserMessageRaw.match(/(?:where|which|that)\s+["']?([A-Za-z0-9\- ]+?)\s+is\s+(?:mentioned|talked\s+about)/i) ||
+          // "does X mention Y?" or "does it mention Y?" - capture Y after "mention" (preferred)
+          lastUserMessageRaw.match(/(?:is|does).*?mention\s+["']?([A-Za-z0-9\- ]+?)["']?(?:\s|$|\.|\?)/i) ||
+          // "is X mentioned?" - only if X is a single word (not "this transcript")
+          lastUserMessageRaw.match(/(?:is|does)\s+["']?([A-Za-z0-9\-]{1,20})\s+mentioned/i) ||
+          // "mention X" or "talk about X" or "about X"
+          lastUserMessageRaw.match(/\b(mention|talk about|about)\s+["']?([A-Za-z0-9\- ]+)["']?/i);
+
+        // If user asked for sentences containing a word - CHECK THIS FIRST before transcript name matching
+        if (sentenceKeywordMatch) {
+          const keyword = (sentenceKeywordMatch[1] || '').replace(/["']/g, '').trim();
+          console.log(`[FAST-PATH] Sentence keyword query detected. Keyword: "${keyword}", Transcript: ${transcriptNameInSentenceQuery ? transcriptNameInSentenceQuery[1] : 'latest'}`);
+          
+          // If a specific transcript was mentioned, search that transcript
+          if (transcriptNameInSentenceQuery) {
+            const fileName = (transcriptNameInSentenceQuery[1] || '').trim();
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'find_sentences_in_transcript', params: { fileName, keyword } })}\n\n`);
+            const toolResult = await executeTool('find_sentences_in_transcript', { fileName, keyword });
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'find_sentences_in_transcript', result: toolResult })}\n\n`);
+
+            const content = toolResult?.error
+              ? `I couldn't search the transcript "${fileName}": ${toolResult.error}`
+              : (toolResult?.sentences?.length
+                ? `Found ${toolResult.sentences.length} sentence(s) with "${keyword}" in ${toolResult.title || fileName}:\n\n${toolResult.sentences.join('\n')}`
+                : `No sentences found containing "${keyword}" in ${toolResult.title || fileName}.`);
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          } else {
+            // Use latest transcript
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'find_sentences_in_latest_transcript', params: { keyword } })}\n\n`);
+            const toolResult = await executeTool('find_sentences_in_latest_transcript', { keyword });
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'find_sentences_in_latest_transcript', result: toolResult })}\n\n`);
+
+            const content = toolResult?.error
+              ? `I couldn't search the transcript: ${toolResult.error}`
+              : (toolResult?.sentences?.length
+                ? `Found ${toolResult.sentences.length} sentence(s) with "${keyword}" in ${toolResult.title || 'the latest transcript'}:\n\n${toolResult.sentences.join('\n')}`
+                : `No sentences found containing "${keyword}" in the latest transcript.`);
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
+        }
+
+        // If user asked whether transcript mentions X or talks about X, summarize the keyword
+        if (mentionKeywordMatch) {
+          // Some patterns capture in group 1, others in group 2
+          const keyword = (mentionKeywordMatch[1] || mentionKeywordMatch[2] || '').replace(/["']/g, '').trim();
+          
+          // Check if a specific transcript filename was mentioned
+          const transcriptNameInMentionQuery = transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) ||
+            transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i);
+          
+          console.log(`[FAST-PATH] Mention keyword query detected. Keyword: "${keyword}", Transcript: ${transcriptNameInMentionQuery ? transcriptNameInMentionQuery[1] : 'latest'}`);
+          
+          if (transcriptNameInMentionQuery && keyword) {
+            const fileName = (transcriptNameInMentionQuery[1] || '').trim();
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'summarize_keyword_in_transcript', params: { fileName, keyword } })}\n\n`);
+            const toolResult = await executeTool('summarize_keyword_in_transcript', { fileName, keyword });
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'summarize_keyword_in_transcript', result: toolResult })}\n\n`);
+
+            const content = toolResult?.error
+              ? `I couldn't summarize "${keyword}" in "${fileName}": ${toolResult.error}`
+              : (toolResult?.summary || `Mentions of "${keyword}" in "${fileName}":\n\n${(toolResult.sentences || []).join('\n')}`);
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
+          
+          // Default: search latest transcript
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'summarize_keyword_in_latest_transcript', params: { keyword } })}\n\n`);
+          const toolResult = await executeTool('summarize_keyword_in_latest_transcript', { keyword });
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'summarize_keyword_in_latest_transcript', result: toolResult })}\n\n`);
+
+          const content = toolResult?.error
+            ? `I couldn't summarize "${keyword}": ${toolResult.error}`
+            : (toolResult?.summary || `Mentions of "${keyword}":\n\n${(toolResult.sentences || []).join('\n')}`);
+
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          return res.end();
+        }
+
+        // Try to extract an explicit transcript file/name (robust to partial phrasing) - ONLY if no sentence/mention query
         const transcriptNameMatch =
           transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) || // quoted name after "transcript"
           transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i) || // unquoted name after transcript
@@ -550,6 +674,10 @@ app.post('/api/llm/chat', async (req, res) => {
 
           // Explicit non-generic name
           if (fileName && !/^(file|transcript|latest|last|recent)$/i.test(fileName)) {
+            // Re-check summarization intent with both raw and lowercase messages
+            const wantsSummaryCheck = /summary|summarize|summarise|brief|short version|tl;dr/i.test(lastUserMessage) || 
+                                     /summary|summarize|summarise|brief|short version|tl;dr/i.test(lastUserMessageRaw);
+            
             res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_transcript', params: { fileName } })}\n\n`);
             const toolResult = await executeTool('get_transcript', { fileName });
             res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_transcript', result: toolResult })}\n\n`);
@@ -560,7 +688,7 @@ app.post('/api/llm/chat', async (req, res) => {
             } else {
               const title = toolResult.title || fileName;
               const body = toolResult.transcript_text || '(no content)';
-              if (wantsSummary) {
+              if (wantsSummaryCheck) {
                 try {
                   const summaryPrompt = [
                     { role: 'system', content: 'Summarize the following transcript in a few concise sentences.' },
@@ -585,51 +713,6 @@ app.post('/api/llm/chat', async (req, res) => {
             res.write('data: [DONE]\n\n');
             return res.end();
           }
-        }
-
-        // Try to extract a keyword for sentence-level or mention queries
-        const sentenceKeywordMatch =
-          // sentences where the word X appears
-          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+["']?([A-Za-z0-9\-_]+)["']?/i) ||
-          // sentences where the word foo bar appears
-          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+([A-Za-z0-9\-_ ]+?)\s+appears?/i) ||
-          // quoted keyword
-          lastUserMessageRaw.match(/sentences?.*?(["'][^"']+["'])/i);
-        const mentionKeywordMatch =
-          lastUserMessageRaw.match(/\b(mention|talk about|about)\s+["']?([A-Za-z0-9\- ]+)["']?/i);
-
-        // If user asked for sentences containing a word, use find_sentences_in_latest_transcript
-        if (sentenceKeywordMatch) {
-          const keyword = (sentenceKeywordMatch[1] || '').replace(/["']/g, '').trim();
-          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'find_sentences_in_latest_transcript', params: { keyword } })}\n\n`);
-          const toolResult = await executeTool('find_sentences_in_latest_transcript', { keyword });
-          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'find_sentences_in_latest_transcript', result: toolResult })}\n\n`);
-
-          const content = toolResult?.error
-            ? `I couldn't search the transcript: ${toolResult.error}`
-            : (toolResult?.sentences?.length
-              ? `Found ${toolResult.sentences.length} sentence(s) with "${keyword}":\n\n${toolResult.sentences.join('\n')}`
-              : `No sentences found containing "${keyword}" in the latest transcript.`);
-
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          res.write('data: [DONE]\n\n');
-          return res.end();
-        }
-
-        // If user asked whether transcript mentions X or talks about X, summarize the keyword
-        if (mentionKeywordMatch) {
-          const keyword = (mentionKeywordMatch[2] || '').replace(/["']/g, '').trim();
-          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'summarize_keyword_in_latest_transcript', params: { keyword } })}\n\n`);
-          const toolResult = await executeTool('summarize_keyword_in_latest_transcript', { keyword });
-          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'summarize_keyword_in_latest_transcript', result: toolResult })}\n\n`);
-
-          const content = toolResult?.error
-            ? `I couldn't summarize "${keyword}": ${toolResult.error}`
-            : (toolResult?.summary || `Mentions of "${keyword}":\n\n${(toolResult.sentences || []).join('\n')}`);
-
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          res.write('data: [DONE]\n\n');
-          return res.end();
         }
 
           // Send tool call + result events so the frontend shows MCP activity
@@ -841,7 +924,16 @@ For example:
 [TOOL_CALL: get_github_issue {"owner": "owner", "repo": "repo", "issueNumber": 1}]
 [TOOL_CALL: get_latest_transcript {}]
 [TOOL_CALL: get_transcripts {}]
-[TOOL_CALL: search_transcripts {"query": "meeting"}]
+[TOOL_CALL: find_sentences_in_latest_transcript {"keyword": "Anna"}]
+[TOOL_CALL: find_sentences_in_transcript {"fileName": "transcript.json", "keyword": "Anna"}]
+[TOOL_CALL: summarize_keyword_in_latest_transcript {"keyword": "Anna"}]
+
+CRITICAL RULES FOR TRANSCRIPT QUERIES:
+- If the user asks for "sentences where X is mentioned" or "sentences containing X", you MUST use find_sentences_in_latest_transcript or find_sentences_in_transcript (if a filename is specified)
+- If the user asks "is X mentioned?" or "does this mention X?", you MUST use summarize_keyword_in_latest_transcript or summarize_keyword_in_transcript (if a filename is specified)
+- NEVER try to answer transcript questions from memory or guesswork - ALWAYS use the transcript tools
+- When a specific transcript filename is mentioned (e.g., "transcript 'file.json'"), use find_sentences_in_transcript or summarize_keyword_in_transcript with the fileName parameter
+- When no filename is specified, use find_sentences_in_latest_transcript or summarize_keyword_in_latest_transcript
 
 IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
 - ALWAYS use get_latest_transcript (NOT get_transcript) when user asks about "the transcript", "the transcript file", "display the transcript", "what is in the transcript", or any question about transcripts without specifying a transcript ID

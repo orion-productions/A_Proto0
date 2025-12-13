@@ -193,6 +193,7 @@ const tryReadByName = (name) => {
 const splitSentences = (text) => {
   if (!text) return [];
   // Split on . ! ? plus common full-width punctuation, keep simple
+  // Also handle cases where punctuation might be followed by quotes or other characters
   return text
     .split(/(?<=[\.!\?。！？])\s+/)
     .map(s => s.trim())
@@ -201,16 +202,38 @@ const splitSentences = (text) => {
 
 const normalize = (s) => s?.toLowerCase() || '';
 
+// Find sentences containing keyword (word-boundary aware)
+const findSentencesWithKeyword = (text, keyword) => {
+  if (!text || !keyword) return [];
+  const sentences = splitSentences(text);
+  const kw = normalize(keyword.trim());
+  // Use word boundary regex to match whole words only
+  const wordBoundaryRegex = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  return sentences.filter(s => wordBoundaryRegex.test(s));
+};
+
 const findSentencesInLatest = (keyword) => {
   if (!keyword || !keyword.trim()) return { error: 'keyword is required' };
   const latest = getLatestTranscript();
   if (latest.error) return latest;
-  const sentences = splitSentences(latest.transcript_text);
-  const kw = normalize(keyword);
-  const matched = sentences.filter(s => normalize(s).includes(kw));
+  const matched = findSentencesWithKeyword(latest.transcript_text, keyword);
   return {
     transcriptId: latest.id,
     title: latest.title,
+    keyword,
+    sentences: matched,
+    count: matched.length,
+  };
+};
+
+const findSentencesInTranscript = (fileName, keyword) => {
+  if (!keyword || !keyword.trim()) return { error: 'keyword is required' };
+  const transcript = getTranscriptByFileName(fileName);
+  if (transcript.error) return transcript;
+  const matched = findSentencesWithKeyword(transcript.transcript_text, keyword);
+  return {
+    transcriptId: transcript.id,
+    title: transcript.title,
     keyword,
     sentences: matched,
     count: matched.length,
@@ -222,6 +245,25 @@ const summarizeKeywordInLatest = (keyword) => {
   if (result.error) return result;
   if (!result.count) {
     return { keyword, summary: `No mentions of "${keyword}" in the latest transcript.`, sentences: [] };
+  }
+  // Simple extractive summary: return unique matched sentences (max 5)
+  const unique = Array.from(new Set(result.sentences));
+  const summary = unique.slice(0, 5).join(' ');
+  return {
+    transcriptId: result.transcriptId,
+    title: result.title,
+    keyword,
+    summary,
+    sentences: unique,
+    count: result.count,
+  };
+};
+
+const summarizeKeywordInTranscript = (fileName, keyword) => {
+  const result = findSentencesInTranscript(fileName, keyword);
+  if (result.error) return result;
+  if (!result.count) {
+    return { keyword, summary: `No mentions of "${keyword}" in the transcript "${fileName}".`, sentences: [] };
   }
   // Simple extractive summary: return unique matched sentences (max 5)
   const unique = Array.from(new Set(result.sentences));
@@ -319,7 +361,9 @@ export default {
   getLatestTranscript,
   getTranscriptByFileName,
   findSentencesInLatest,
+  findSentencesInTranscript,
   summarizeKeywordInLatest,
+  summarizeKeywordInTranscript,
   saveTranscript,
   deleteTranscript,
   definition: [
