@@ -286,6 +286,25 @@ function RecordingSection() {
   // REMOVED useEffect that loads transcript on mount - it was overwriting new recordings
   // State will ONLY be set when a new recording/transcription is saved
 
+  // Load existing audio files on mount
+  useEffect(() => {
+    const loadExistingAudioFiles = async () => {
+      try {
+        const response = await fetch('/api/audio-files');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.audioFiles && data.audioFiles.length > 0) {
+            setAudioHistory(data.audioFiles);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load existing audio files:', error);
+      }
+    };
+
+    loadExistingAudioFiles();
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {

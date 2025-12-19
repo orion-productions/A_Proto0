@@ -409,6 +409,64 @@ app.delete('/api/transcripts/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Get list of audio files with metadata
+app.get('/api/audio-files', (req, res) => {
+  try {
+    const audioDir = path.join(__dirname, 'audio');
+    if (!fs.existsSync(audioDir)) {
+      return res.json({ audioFiles: [] });
+    }
+
+    const files = fs.readdirSync(audioDir);
+    const audioFiles = [];
+
+    for (const file of files) {
+      const filePath = path.join(audioDir, file);
+      const stats = fs.statSync(filePath);
+
+      // Extract timestamp from filename (first part before first dash)
+      const timestampMatch = file.match(/^(\d+)-/);
+      let recordingTime = null;
+
+      if (timestampMatch) {
+        const timestamp = parseInt(timestampMatch[1]);
+        recordingTime = new Date(timestamp).toISOString();
+      } else {
+        // Fallback to file modification time
+        recordingTime = stats.mtime.toISOString();
+      }
+
+      // Determine file type and duration estimate
+      const ext = path.extname(file).toLowerCase();
+      let type = 'upload';
+      let duration = 0;
+
+      if (file.includes('recording-')) {
+        type = 'recording';
+        // Estimate duration from file size (rough approximation)
+        // For WebM/OGG/MP3: ~1KB ≈ 0.06 seconds at 128kbps
+        duration = Math.round((stats.size / 1024) * 0.06);
+      }
+
+      audioFiles.push({
+        fileName: file,
+        fileSize: stats.size,
+        recordingTime: recordingTime,
+        type: type,
+        duration: duration
+      });
+    }
+
+    // Sort by recording time (newest first)
+    audioFiles.sort((a, b) => new Date(b.recordingTime) - new Date(a.recordingTime));
+
+    res.json({ audioFiles });
+  } catch (error) {
+    console.error('Error getting audio files:', error);
+    res.status(500).json({ error: 'Failed to get audio files' });
+  }
+});
+
 app.get('/api/chats/:id/messages', (req, res) => {
   const messages = db.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp ASC')
     .all(req.params.id);
