@@ -1,4 +1,6 @@
 import React, { useEffect, useRef } from 'react';
+import useStore from '../store/useStore';
+import { useTranslation } from '../utils/i18n';
 
 // Helper function to format duration
 const formatDuration = (seconds) => {
@@ -12,6 +14,8 @@ const formatDuration = (seconds) => {
 };
 
 function Spectrogram({ audioStream, isRecording, liveTranscript = '', audioFileInfo = null, savedTranscriptInfo = null }) {
+  const { selectedLanguage } = useStore();
+  const t = useTranslation(selectedLanguage);
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -46,8 +50,10 @@ function Spectrogram({ audioStream, isRecording, liveTranscript = '', audioFileI
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
+    // Connect source to analyser for visualization only
+    // DO NOT connect to audioContext.destination - that would play audio through speakers and cause feedback!
     source.connect(analyser);
-    analyser.connect(audioContext.destination);
+    // analyser.connect(audioContext.destination); // REMOVED - this was causing audio playback and feedback
 
     audioContextRef.current = audioContext;
     analyserRef.current = analyser;
@@ -110,21 +116,21 @@ function Spectrogram({ audioStream, isRecording, liveTranscript = '', audioFileI
           <div className="w-full h-32 bg-gray-900 rounded-lg p-3 flex flex-col justify-center text-gray-400 text-xs overflow-y-auto">
             {audioFileInfo || savedTranscriptInfo ? (
               <div className="space-y-1">
-                <div className="text-gray-500 text-xs font-semibold mb-2">Latest Audio & Transcript Info</div>
+                <div className="text-gray-500 text-xs font-semibold mb-2">{t('latest.audio.transcript.info')}</div>
                 
                 {audioFileInfo && (
                   <div className="space-y-1">
-                    <div><span className="text-gray-500">Audio File:</span> <span className="text-gray-300">{audioFileInfo.fileName}</span></div>
+                    <div><span className="text-gray-500">{t('audio.file.label')}</span> <span className="text-gray-300">{audioFileInfo.fileName}</span></div>
                     {audioFileInfo.fileSize && (
-                      <div><span className="text-gray-500">File Size:</span> <span className="text-gray-300">{(audioFileInfo.fileSize / 1024).toFixed(1)} KB</span></div>
+                      <div><span className="text-gray-500">{t('file.size')}:</span> <span className="text-gray-300">{(audioFileInfo.fileSize / 1024).toFixed(1)} KB</span></div>
                     )}
                     {audioFileInfo.duration !== null && audioFileInfo.duration !== undefined && !isNaN(audioFileInfo.duration) ? (
-                      <div><span className="text-gray-500">Duration:</span> <span className="text-gray-300">{Math.round(audioFileInfo.duration)}s ({formatDuration(audioFileInfo.duration)})</span></div>
+                      <div><span className="text-gray-500">{t('duration')}:</span> <span className="text-gray-300">{Math.round(audioFileInfo.duration)}s ({formatDuration(audioFileInfo.duration)})</span></div>
                     ) : (
-                      <div><span className="text-gray-500">Duration:</span> <span className="text-gray-300 text-yellow-400">Not available</span></div>
+                      <div><span className="text-gray-500">{t('duration')}:</span> <span className="text-gray-300 text-yellow-400">{t('not.available')}</span></div>
                     )}
                     {audioFileInfo.recordingTime && (
-                      <div><span className="text-gray-500">Recorded:</span> <span className="text-gray-300">{new Date(audioFileInfo.recordingTime).toLocaleString()}</span></div>
+                      <div><span className="text-gray-500">{t('recorded')}:</span> <span className="text-gray-300">{new Date(audioFileInfo.recordingTime).toLocaleString()}</span></div>
                     )}
                   </div>
                 )}
@@ -133,24 +139,24 @@ function Spectrogram({ audioStream, isRecording, liveTranscript = '', audioFileI
                   <div className="mt-2 pt-2 border-t border-gray-700 space-y-1">
                     {savedTranscriptInfo ? (
                       <>
-                        <div><span className="text-gray-500">Transcript File:</span> <span className="text-gray-300">{savedTranscriptInfo.title}</span></div>
-                        <div><span className="text-gray-500">Word Count:</span> <span className="text-gray-300">{savedTranscriptInfo.wordCount} words</span></div>
-                        <div><span className="text-gray-500">Saved At:</span> <span className="text-gray-300">{new Date(savedTranscriptInfo.savedAt).toLocaleString()}</span></div>
-                      </>
+                        <div><span className="text-gray-500">{t('transcript.file.label')}</span> <span className="text-gray-300">{savedTranscriptInfo.title}</span></div>
+                        <div><span className="text-gray-500">{t('word.count')}:</span> <span className="text-gray-300">{savedTranscriptInfo.wordCount} {t('words')}</span></div>
+                        <div><span className="text-gray-500">{t('saved.at')}:</span> <span className="text-gray-300">{new Date(savedTranscriptInfo.savedAt).toLocaleString()}</span></div>
+                      </> 
                     ) : (
-                      <div><span className="text-gray-500">Transcript:</span> <span className="text-yellow-400">Not available yet (generating...)</span></div>
+                      <div><span className="text-gray-500">{t('transcription')}:</span> <span className="text-yellow-400">{t('transcript.not.available')}</span></div>
                     )}
                   </div>
                 )}
                 
                 {!audioFileInfo && !savedTranscriptInfo && (
-                  <div className="text-gray-500 text-xs">No audio or transcript data available</div>
+                  <div className="text-gray-500 text-xs">{t('no.audio.transcript.data')}</div>
                 )}
               </div>
             ) : (
               <div className="text-center text-gray-500">
-                <div className="text-sm mb-1">Spectrogram will appear when recording starts</div>
-                <div className="text-xs">Latest audio and transcript info will be shown here</div>
+                <div className="text-sm mb-1">{t('spectrogram.will.appear')}</div>
+                <div className="text-xs">{t('latest.info.will.show')}</div>
               </div>
             )}
           </div>

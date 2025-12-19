@@ -463,11 +463,13 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
       const needsDriveTool = /drive|file|document|folder|google drive|gdrive/i.test(lastUserMessage);
       const needsDiscordTool = /discord|guild|server|channel|dm|direct message/i.test(lastUserMessage);
-      // More aggressive detection for sentence/mention queries
-      const sentenceQuery = /sentences?.*(?:word|appear|mentioned|containing|where)/i.test(lastUserMessageRaw);
-      const mentionQuery = /(?:is|are|was|were)\s+["']?[A-Za-z0-9\- ]+?\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw) ||
-                          /\b(mention|talk about|about)\s+["']?[A-Za-z0-9\- ]+/i.test(lastUserMessageRaw) ||
-                          /(?:where|which|that)\s+["']?[A-Za-z0-9\- ]+?\s+is\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw);
+      // More aggressive detection for sentence/mention queries - but ONLY when explicitly about transcripts
+      const hasTranscriptContext = /transcript|recording|meeting|audio file|what was said|what did.*say/i.test(lastUserMessage);
+      const sentenceQuery = hasTranscriptContext && /sentences?.*(?:word|appear|mentioned|containing|where)/i.test(lastUserMessageRaw);
+      const mentionQuery = hasTranscriptContext && (
+        /(?:is|are|was|were)\s+["']?[A-Za-z0-9\- ]+?\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw) ||
+        /(?:where|which|that)\s+["']?[A-Za-z0-9\- ]+?\s+is\s+(?:mentioned|talked\s+about)/i.test(lastUserMessageRaw)
+      );
       const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage) || sentenceQuery || mentionQuery;
       
       const needsTools = needsWeatherTool || needsAddTool || needsJiraTool || 
@@ -481,42 +483,52 @@ app.post('/api/llm/chat', async (req, res) => {
       }
       
         // Fast-path transcript requests: fetch transcript and optionally summarize
+        // IMPORTANT: Only execute fast-path if we're CERTAIN this is a transcript query
+        // Double-check that we have explicit transcript context before proceeding
         if (enableTools && needsTranscriptTool) {
         // Normalize smart quotes for matching
         const transcriptMessage = lastUserMessageRaw.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-
-        // Check for "latest/most recent/last transcript" intent (robust, including "transcript file")
-        const wantsLatestTranscript =
-          /latest|most recent|last/i.test(transcriptMessage) &&
-          /\btranscript\b/i.test(transcriptMessage);
-        const wantsLatestTranscriptFile =
-          /latest|most recent|last/i.test(transcriptMessage) &&
-          /(transcript\s+file|file\s+transcript)/i.test(transcriptMessage);
-
-        if (wantsLatestTranscript || wantsLatestTranscriptFile) {
-          res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
-          const toolResult = await executeTool('get_latest_transcript', {});
-          res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
-
-          const title = toolResult.title || 'Latest transcript';
-          const body = toolResult.transcript_text || '(no content)';
-          const content = toolResult.error
-            ? `I couldn't fetch the latest transcript: ${toolResult.error}`
-            : `Here is ${title}:\n\n${body}`;
-
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          res.write('data: [DONE]\n\n');
-          return res.end();
-        }
-
-        // Try to extract a keyword for sentence-level or mention queries FIRST (before transcript name matching)
-        // Also check if a specific transcript filename was mentioned
-        const transcriptNameInSentenceQuery = transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) ||
-          transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i);
         
-        const sentenceKeywordMatch =
-          // sentences where the word X appears
-          lastUserMessageRaw.match(/sentences?.*?\bword\b\s+["']?([A-Za-z0-9\-_]+)["']?/i) ||
+        // Additional safety check: verify explicit transcript context exists
+        const explicitTranscriptContext = /transcript|recording|meeting|audio file|what was said|what did.*say/i.test(transcriptMessage.toLowerCase());
+        if (!explicitTranscriptContext) {
+          console.log('[FAST-PATH] Skipping fast-path - no explicit transcript context detected. Query will be handled by LLM without transcript tools.');
+          // Fall through to normal LLM processing without fast-path
+        } else {
+          console.log('[FAST-PATH] Explicit transcript context detected, proceeding with fast-path');
+
+          // Check for "latest/most recent/last transcript" intent (robust, including "transcript file")
+          const wantsLatestTranscript =
+            /latest|most recent|last/i.test(transcriptMessage) &&
+            /\btranscript\b/i.test(transcriptMessage);
+          const wantsLatestTranscriptFile =
+            /latest|most recent|last/i.test(transcriptMessage) &&
+            /(transcript\s+file|file\s+transcript)/i.test(transcriptMessage);
+
+          if (wantsLatestTranscript || wantsLatestTranscriptFile) {
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', tool: 'get_latest_transcript', params: {} })}\n\n`);
+            const toolResult = await executeTool('get_latest_transcript', {});
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: 'get_latest_transcript', result: toolResult })}\n\n`);
+
+            const title = toolResult.title || 'Latest transcript';
+            const body = toolResult.transcript_text || '(no content)';
+            const content = toolResult.error
+              ? `I couldn't fetch the latest transcript: ${toolResult.error}`
+              : `Here is ${title}:\n\n${body}`;
+
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            return res.end();
+          }
+
+          // Try to extract a keyword for sentence-level or mention queries FIRST (before transcript name matching)
+          // Also check if a specific transcript filename was mentioned
+          const transcriptNameInSentenceQuery = transcriptMessage.match(/transcript(?: file)?[^"'\n]*["']([^"']+)["']/i) ||
+            transcriptMessage.match(/transcript(?: file)?\s*[:\-]?\s*([A-Za-z0-9 _\-,.()]+)/i);
+          
+          const sentenceKeywordMatch =
+            // sentences where the word X appears
+            lastUserMessageRaw.match(/sentences?.*?\bword\b\s+["']?([A-Za-z0-9\-_]+)["']?/i) ||
           // sentences where the word foo bar appears
           lastUserMessageRaw.match(/sentences?.*?\bword\b\s+([A-Za-z0-9\-_ ]+?)\s+appears?/i) ||
           // "sentences where X is mentioned" - more flexible pattern (MOST IMPORTANT - catches "sentences where 'Anna' is mentioned")
@@ -534,15 +546,17 @@ app.post('/api/llm/chat', async (req, res) => {
           // simple: "sentences where X" 
           lastUserMessageRaw.match(/sentences?.*?where\s+["']?([A-Za-z0-9\-_ ]+?)["']?(?:\s|$|\.|\?)/i);
         
-        const mentionKeywordMatch =
-          // "where X is mentioned" or "that X is mentioned"
-          lastUserMessageRaw.match(/(?:where|which|that)\s+["']?([A-Za-z0-9\- ]+?)\s+is\s+(?:mentioned|talked\s+about)/i) ||
-          // "does X mention Y?" or "does it mention Y?" - capture Y after "mention" (preferred)
-          lastUserMessageRaw.match(/(?:is|does).*?mention\s+["']?([A-Za-z0-9\- ]+?)["']?(?:\s|$|\.|\?)/i) ||
+          // Only check for mention keywords (removed "about X" pattern - too broad)
+          const mentionKeywordMatch = (
+            // "where X is mentioned" or "that X is mentioned"
+            lastUserMessageRaw.match(/(?:where|which|that)\s+["']?([A-Za-z0-9\- ]+?)\s+is\s+(?:mentioned|talked\s+about)/i) ||
+            // "does X mention Y?" or "does it mention Y?" - capture Y after "mention" (preferred)
+            lastUserMessageRaw.match(/(?:is|does).*?mention\s+["']?([A-Za-z0-9\- ]+?)["']?(?:\s|$|\.|\?)/i) ||
           // "is X mentioned?" - only if X is a single word (not "this transcript")
           lastUserMessageRaw.match(/(?:is|does)\s+["']?([A-Za-z0-9\-]{1,20})\s+mentioned/i) ||
-          // "mention X" or "talk about X" or "about X"
-          lastUserMessageRaw.match(/\b(mention|talk about|about)\s+["']?([A-Za-z0-9\- ]+)["']?/i);
+            // "mention X" or "talk about X" in transcript context only
+            lastUserMessageRaw.match(/\b(mention|talk about)\s+["']?([A-Za-z0-9\- ]+)["']?/i)
+          );
 
         // If user asked for sentences containing a word - CHECK THIS FIRST before transcript name matching
         if (sentenceKeywordMatch) {
@@ -622,6 +636,7 @@ app.post('/api/llm/chat', async (req, res) => {
           res.write('data: [DONE]\n\n');
           return res.end();
         }
+        } // End of explicitTranscriptContext check - if no explicit context, skip fast-path and continue to normal LLM processing
 
         // Try to extract an explicit transcript file/name (robust to partial phrasing) - ONLY if no sentence/mention query
         const transcriptNameMatch =
@@ -735,7 +750,7 @@ app.post('/api/llm/chat', async (req, res) => {
                 model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
                 messages: summaryPrompt,
                 stream: false
-              }, { timeout: 20000 });
+              }, { timeout: 120000 }); // 2 minutes for summarization
               
               const summary = summaryResp.data?.message?.content?.trim();
               const content = summary || `Here is ${title} (summary unavailable):\n\n${body}`;
@@ -906,13 +921,65 @@ app.post('/api/llm/chat', async (req, res) => {
         }
       }
       
-      // Only add tool instructions if the query needs them
-      if (enableTools && needsTools && conversationMessages[0]?.role !== 'system') {
-        const toolsDescription = toolsDefinition.map(t =>
-          `${t.function.name}: ${t.function.description}`
-        ).join('\n');
+      // Filter tools based on what's actually needed
+      // MCP Tools should ALWAYS be active, but transcript tools only when explicitly needed
+      let filteredToolsDefinition = toolsDefinition;
+      if (enableTools && needsTools) {
+        // Only include transcript tools if explicitly needed
+        if (!needsTranscriptTool) {
+          filteredToolsDefinition = toolsDefinition.filter(t => {
+            const name = t.function.name.toLowerCase();
+            return !name.includes('transcript') && 
+                   !name.includes('_transcript') &&
+                   name !== 'get_transcripts' &&
+                   name !== 'get_transcript' &&
+                   name !== 'get_latest_transcript' &&
+                   name !== 'search_transcripts' &&
+                   name !== 'find_sentences_in_latest_transcript' &&
+                   name !== 'find_sentences_in_transcript' &&
+                   name !== 'summarize_keyword_in_latest_transcript' &&
+                   name !== 'summarize_keyword_in_transcript';
+          });
+          console.log(`[TOOLS] Filtered out transcript tools. ${filteredToolsDefinition.length} tools available (${toolsDefinition.length - filteredToolsDefinition.length} transcript tools excluded)`);
+        } else {
+          console.log(`[TOOLS] Transcript tools INCLUDED. ${filteredToolsDefinition.length} tools available (transcript tools enabled)`);
+        }
+      }
+      
+      // Always add a basic system prompt for consistency, even when no tools are needed
+      if (conversationMessages[0]?.role !== 'system') {
+        if (enableTools && needsTools) {
+          const toolsDescription = filteredToolsDefinition.map(t =>
+            `${t.function.name}: ${t.function.description}`
+          ).join('\n');
 
-        const toolInstructions = `You are a helpful assistant with access to these tools:
+          // Build examples - only include transcript examples if transcript tools are available
+          const transcriptExamples = needsTranscriptTool ? `
+[TOOL_CALL: get_latest_transcript {}]
+[TOOL_CALL: get_transcripts {}]
+[TOOL_CALL: find_sentences_in_latest_transcript {"keyword": "Anna"}]
+[TOOL_CALL: find_sentences_in_transcript {"fileName": "transcript.json", "keyword": "Anna"}]
+[TOOL_CALL: summarize_keyword_in_latest_transcript {"keyword": "Anna"}]` : '';
+
+          const transcriptRules = needsTranscriptTool ? `
+
+CRITICAL RULES FOR TRANSCRIPT QUERIES:
+- ONLY use transcript tools when the user EXPLICITLY asks about transcripts, recordings, meeting notes, or what was said in a recording
+- DO NOT use transcript tools for general knowledge questions (e.g., "what do you know about X", "tell me about Y") unless the user explicitly asks if X or Y was mentioned in a transcript
+- If the user asks for "sentences where X is mentioned" or "sentences containing X" IN A TRANSCRIPT, you MUST use find_sentences_in_latest_transcript or find_sentences_in_transcript (if a filename is specified)
+- If the user asks "is X mentioned?" or "does this mention X?" IN A TRANSCRIPT, you MUST use summarize_keyword_in_latest_transcript or summarize_keyword_in_transcript (if a filename is specified)
+- NEVER try to answer transcript questions from memory or guesswork - ALWAYS use the transcript tools WHEN EXPLICITLY ASKED ABOUT TRANSCRIPTS
+- When a specific transcript filename is mentioned (e.g., "transcript 'file.json'"), use find_sentences_in_transcript or summarize_keyword_in_transcript with the fileName parameter
+- When no filename is specified but user asks about transcripts, use get_latest_transcript or find_sentences_in_latest_transcript
+
+IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
+- ALWAYS use get_latest_transcript (NOT get_transcript) when user asks about "the transcript", "the transcript file", "display the transcript", "what is in the transcript", or any question about transcripts without specifying a transcript ID
+- Use get_transcripts to list all available transcripts
+- Use search_transcripts to find specific words or topics
+- ONLY use get_transcript when you have a specific transcriptId from get_transcripts
+- DO NOT automatically check transcripts for general knowledge questions - only use transcript tools when explicitly asked` : '';
+
+          const toolInstructions = `You are a helpful assistant with access to these tools:
 ${toolsDescription}
 
 When you need to use a tool, respond with EXACTLY this format:
@@ -922,34 +989,25 @@ For example:
 [TOOL_CALL: get_weather {"city": "Paris"}]
 [TOOL_CALL: get_jira_issue {"issueKey": "PROJ-123"}]
 [TOOL_CALL: get_github_issue {"owner": "owner", "repo": "repo", "issueNumber": 1}]
-[TOOL_CALL: get_latest_transcript {}]
-[TOOL_CALL: get_transcripts {}]
-[TOOL_CALL: find_sentences_in_latest_transcript {"keyword": "Anna"}]
-[TOOL_CALL: find_sentences_in_transcript {"fileName": "transcript.json", "keyword": "Anna"}]
-[TOOL_CALL: summarize_keyword_in_latest_transcript {"keyword": "Anna"}]
-
-CRITICAL RULES FOR TRANSCRIPT QUERIES:
-- If the user asks for "sentences where X is mentioned" or "sentences containing X", you MUST use find_sentences_in_latest_transcript or find_sentences_in_transcript (if a filename is specified)
-- If the user asks "is X mentioned?" or "does this mention X?", you MUST use summarize_keyword_in_latest_transcript or summarize_keyword_in_transcript (if a filename is specified)
-- NEVER try to answer transcript questions from memory or guesswork - ALWAYS use the transcript tools
-- When a specific transcript filename is mentioned (e.g., "transcript 'file.json'"), use find_sentences_in_transcript or summarize_keyword_in_transcript with the fileName parameter
-- When no filename is specified, use find_sentences_in_latest_transcript or summarize_keyword_in_latest_transcript
-
-IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
-- ALWAYS use get_latest_transcript (NOT get_transcript) when user asks about "the transcript", "the transcript file", "display the transcript", "what is in the transcript", or any question about transcripts without specifying a transcript ID
-- Use get_transcripts to list all available transcripts
-- Use search_transcripts to find specific words or topics
-- ONLY use get_transcript when you have a specific transcriptId from get_transcripts
+[TOOL_CALL: calculator {"expression": "5+3"}]
+${transcriptExamples}${transcriptRules}
 
 After using a tool, you'll receive the result and should provide a natural language response to the user.`;
-        
-        const arithmeticHint = `\nFor arithmetic expressions (e.g., "5+1", "12.3*4", "sin(pi/2)+log(10)+3^2"), use the calculator tool with an expression string.`;
-        const fullInstructions = toolInstructions + arithmeticHint;
-        
-        conversationMessages.unshift({
-          role: 'system',
-          content: fullInstructions
-        });
+
+          const arithmeticHint = `\nFor arithmetic expressions (e.g., "5+1", "12.3*4", "sin(pi/2)+log(10)+3^2"), use the calculator tool with an expression string.`;
+          const fullInstructions = toolInstructions + arithmeticHint;
+
+          conversationMessages.unshift({
+            role: 'system',
+            content: fullInstructions
+          });
+        } else {
+          // Add a basic system prompt for general knowledge questions
+          conversationMessages.unshift({
+            role: 'system',
+            content: 'You are a helpful AI assistant. Answer questions directly and provide accurate information.'
+          });
+        }
       }
       
       // Tool calling loop
@@ -963,16 +1021,18 @@ After using a tool, you'll receive the result and should provide a natural langu
           stream: false
         };
         
-        // Only add tools if the query needs them
+        // Only add tools if the query needs them, and use filtered tools
         if (enableTools && needsTools) {
-          requestBody.tools = toolsDefinition;
-          console.log('Adding tools to request');
+          requestBody.tools = filteredToolsDefinition;
+          console.log(`[TOOLS] Adding ${filteredToolsDefinition.length} tools to LLM request (transcript tools ${needsTranscriptTool ? 'INCLUDED' : 'EXCLUDED'})`);
         } else {
-          console.log('NOT adding tools to request');
+          console.log('[TOOLS] NOT adding tools to request');
         }
         
+        // Use longer timeout for general knowledge questions (no tools)
+        const requestTimeout = (enableTools && needsTools) ? 60000 : 180000; // 60s with tools, 180s without tools
         const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody, {
-          timeout: 60000 // 60 second timeout per LLM call
+          timeout: requestTimeout
         });
         const assistantMessage = response.data.message;
         
@@ -1012,9 +1072,18 @@ After using a tool, you'll receive the result and should provide a natural langu
             })}\n\n`);
             
             // Execute the tool
-            console.log(`Executing tool: ${toolName} with params:`, toolParams);
+            const isTranscriptTool = toolName.toLowerCase().includes('transcript');
+            if (isTranscriptTool) {
+              console.log(`[TRANSCRIPT TOOL] ⚠️ Executing transcript tool: ${toolName} with params:`, toolParams);
+            } else {
+              console.log(`[MCP TOOL] Executing tool: ${toolName} with params:`, toolParams);
+            }
             const toolResult = await executeTool(toolName, toolParams);
-            console.log(`Tool result:`, toolResult);
+            if (isTranscriptTool) {
+              console.log(`[TRANSCRIPT TOOL] ⚠️ Result:`, toolResult);
+            } else {
+              console.log(`[MCP TOOL] Result:`, toolResult);
+            }
             lastToolResult = toolResult;
             
             // Send tool result to frontend

@@ -2,6 +2,8 @@ import React, { useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Box } from 'lucide-react';
+import useStore from '../store/useStore';
+import { useTranslation } from '../utils/i18n';
 
 function RotatingCube() {
   const meshRef = useRef();
@@ -22,11 +24,14 @@ function RotatingCube() {
 }
 
 function ThreeDWindow() {
+  const { selectedLanguage } = useStore();
+  const t = useTranslation(selectedLanguage);
+  
   return (
     <div className="h-full flex flex-col">
       <div className="p-3 bg-gray-750 font-semibold border-b border-gray-700 flex items-center gap-2">
         <Box size={18} />
-        3D Window
+        {t('three.d.window')}
       </div>
       
       <div className="flex-1 bg-gray-900">

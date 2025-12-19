@@ -4,11 +4,13 @@ import useStore from '../store/useStore';
 import { api } from '../api/api';
 import Spectrogram from './Spectrogram';
 import { startRealtimeTranscription, stopRealtimeTranscription } from '../utils/speechToText';
+import { useTranslation } from '../utils/i18n';
 // Lazy load Whisper to avoid breaking app on startup
 const whisperPromise = import('../utils/whisperTranscription');
 
 function RecordingSection() {
-  const { isRecording, setIsRecording } = useStore();
+  const { isRecording, setIsRecording, selectedLanguage } = useStore();
+  const t = useTranslation(selectedLanguage);
   const [transcript, setTranscript] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionProgress, setTranscriptionProgress] = useState({ stage: '', progress: 0 });
@@ -68,26 +70,81 @@ function RecordingSection() {
 
   const startRecording = async () => {
     try {
+      // Request high-quality audio input
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          // Request higher sample rate for better quality (48kHz is high quality)
+          sampleRate: 48000,
+          // Request stereo if available, otherwise mono
+          channelCount: { ideal: 2, min: 1 },
+          // Request higher bit depth if supported
+          sampleSize: { ideal: 16, min: 16 }
         }
       });
       setAudioStream(stream);
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      
+      // Determine best available codec and mimeType
+      let mimeType = 'audio/webm';
+      let codec = 'opus';
+      let options = {};
+      
+      // Check for supported codecs in order of preference (best quality first)
+      const codecs = [
+        { mime: 'audio/webm;codecs=opus', codec: 'opus' },
+        { mime: 'audio/webm', codec: 'opus' },
+        { mime: 'audio/ogg;codecs=opus', codec: 'opus' },
+        { mime: 'audio/mp4', codec: 'aac' },
+      ];
+      
+      for (const codecOption of codecs) {
+        if (MediaRecorder.isTypeSupported(codecOption.mime)) {
+          mimeType = codecOption.mime;
+          codec = codecOption.codec;
+          break;
+        }
+      }
+      
+      // Set high-quality recording options
+      options = {
+        mimeType: mimeType,
+        audioBitsPerSecond: 128000, // 128 kbps for good quality (can go up to 320000 for excellent quality)
+        // Some browsers support these additional options
+        ...(codec === 'opus' && {
+          // Opus-specific options if supported
+        })
+      };
+      
+      // Fallback: if no high-quality options are supported, use default but log a warning
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.warn('High-quality codec not supported, using browser default');
+        options = {}; // Let browser choose
+      }
+      
+      mediaRecorderRef.current = new MediaRecorder(stream, options);
       audioChunksRef.current = [];
       recordingStartRef.current = new Date();
+      
+      console.log(`Recording with: ${mimeType}, codec: ${codec}, bitrate: ${options.audioBitsPerSecond || 'default'} bps`);
 
       mediaRecorderRef.current.ondataavailable = (event) => {
         audioChunksRef.current.push(event.data);
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        // Use the same mimeType that was used for recording
+        const blobType = mediaRecorderRef.current.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
         audioBlobRef.current = audioBlob;
         setAudioStream(null);
+        
+        // Determine file extension based on mimeType
+        let fileExtension = 'webm';
+        if (blobType.includes('ogg')) fileExtension = 'ogg';
+        else if (blobType.includes('mp4')) fileExtension = 'm4a';
+        else if (blobType.includes('webm')) fileExtension = 'webm';
         
         // Stop real-time transcription
         if (recognitionRef.current) {
@@ -143,7 +200,7 @@ function RecordingSection() {
         
         const recordingTime = new Date();
         const baseName = `recording-${formatSlugTs(recordingStartRef.current || recordingTime)}`;
-        const audioFileName = `${baseName}.webm`;
+        const audioFileName = `${baseName}.${fileExtension}`;
         
         // STEP 1: Set audio file info immediately
         setAudioFileInfo({
@@ -439,7 +496,7 @@ function RecordingSection() {
   // Calendar view (simple weekly list)
   const renderCalendar = () => {
     if (!audioHistory.length) {
-      return <div className="text-sm text-gray-300 p-3">No audio files yet.</div>;
+      return <div className="text-sm text-gray-300 p-3">{t('no.audio.files.yet')}</div>;
     }
     return (
       <div className="p-3 text-sm text-gray-200 space-y-2 max-h-64 overflow-y-auto">
@@ -458,7 +515,7 @@ function RecordingSection() {
                 setShowCalendar(false);
               }}
             >
-              Select
+              {t('select')}
             </button>
           </div>
         ))}
@@ -468,40 +525,40 @@ function RecordingSection() {
 
   const renderInfoPanels = () => {
     const audioTooltip = audioFileInfo
-      ? `Audio File: ${audioFileInfo.fileName || 'n/a'}
-Size: ${Math.round((audioFileInfo.fileSize || 0) / 1024)} KB
-Duration: ${audioFileInfo.duration ? Math.round(audioFileInfo.duration) + 's' : 'n/a'}
-Recorded at: ${audioFileInfo.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}`
-      : 'No audio selected';
+      ? `${t('audio.file.label')} ${audioFileInfo.fileName || t('n.a')}
+${t('file.size')}: ${Math.round((audioFileInfo.fileSize || 0) / 1024)} KB
+${t('duration')}: ${audioFileInfo.duration ? Math.round(audioFileInfo.duration) + 's' : t('n.a')}
+${t('recorded')}: ${audioFileInfo.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : t('n.a')}`
+      : t('no.audio.selected');
 
-    const transcriptDisplayName = savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a';
+    const transcriptDisplayName = savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || t('n.a');
     const transcriptTooltip = savedTranscriptInfo
-      ? `Transcript File: ${transcriptDisplayName}
-Size: ${savedTranscriptInfo.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}
-Word Count: ${savedTranscriptInfo.wordCount || 'n/a'}
-Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
-      : 'No transcript yet';
+      ? `${t('transcript.file.label')} ${transcriptDisplayName}
+${t('file.size')}: ${savedTranscriptInfo.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : t('n.a')}
+${t('word.count')}: ${savedTranscriptInfo.wordCount || t('n.a')}
+${t('transcription')}: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : t('n.a')}`
+      : t('no.transcript.yet');
 
     return (
       <div className="bg-gray-900 rounded-lg p-3 mb-3 flex flex-col md:flex-row gap-3">
         <div className="flex-1 min-w-0" title={audioTooltip}>
-          <div className="text-xs text-gray-400 mb-1 font-semibold">Audio</div>
+          <div className="text-xs text-gray-400 mb-1 font-semibold">{t('audio')}</div>
           {audioFileInfo ? (
             <div className="text-sm text-gray-200 space-y-1">
-              <div>Audio File name: <span className="font-semibold">{audioFileInfo.fileName}</span></div>
+              <div>{t('audio.file.label')} <span className="font-semibold">{audioFileInfo.fileName}</span></div>
             </div>
           ) : (
-            <div className="text-sm text-gray-500">No audio selected</div>
+            <div className="text-sm text-gray-500">{t('no.audio.selected')}</div>
           )}
         </div>
         <div className="flex-1 min-w-0" title={transcriptTooltip}>
-          <div className="text-xs text-gray-400 mb-1 font-semibold">Transcript</div>
+          <div className="text-xs text-gray-400 mb-1 font-semibold">{t('transcript')}</div>
           {savedTranscriptInfo ? (
             <div className="text-sm text-gray-200 space-y-1">
-              <div>Transcript File Name: <span className="font-semibold">{transcriptDisplayName}</span></div>
+              <div>{t('transcript.file.label')} <span className="font-semibold">{transcriptDisplayName}</span></div>
             </div>
           ) : (
-            <div className="text-sm text-gray-500">No transcript yet</div>
+            <div className="text-sm text-gray-500">{t('no.transcript.yet')}</div>
           )}
         </div>
       </div>
@@ -510,7 +567,7 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
 
   const handleManualTranscribe = async () => {
     if (!audioBlobRef.current) {
-      alert('No audio file available. Please record or upload first.');
+      alert(t('no.audio.file.available'));
       return;
     }
     setTranscriptionStatus('processing');
@@ -539,7 +596,7 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
     <div className="h-full flex flex-col">
       <div className="p-3 bg-gray-750 font-semibold border-b border-gray-700 flex items-center gap-2">
         <FileAudio size={18} />
-        Meeting Recording
+        {t('meeting.recording')}
       </div>
       
       <div className="flex-1 p-3 overflow-y-auto flex flex-col">
@@ -551,7 +608,7 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
               className="flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg transition-colors"
             >
               <Mic size={18} />
-              Record
+              {t('record')}
             </button>
           ) : (
             <button
@@ -559,7 +616,7 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
               className="flex items-center justify-center gap-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-3 rounded-lg transition-colors"
             >
               <Square size={18} />
-              Stop
+              {t('stop')}
             </button>
           )}
           
@@ -582,16 +639,16 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
             className="flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg transition-colors"
           >
             <CalendarDays size={16} />
-            Calendar
+            {t('calendar')}
           </button>
           <button
             onClick={handleManualTranscribe}
             disabled={isRecording || isTranscribing}
             className={`flex items-center justify-center gap-2 ${isTranscribing ? 'bg-green-800' : 'bg-green-600 hover:bg-green-700'} disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 px-3 rounded-lg transition-colors`}
-            title="Manually trigger transcript for current audio file"
+            title={t('manually.trigger.transcript')}
           >
             <FileText size={16} />
-            {isTranscribing ? `Transcribing... ${transcriptionProgress.progress || 0}%` : 'Transcript'}
+            {isTranscribing ? `${t('transcribing')} ${transcriptionProgress.progress || 0}%` : t('transcribe')}
           </button>
           <input
             type="file"
@@ -603,18 +660,18 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
           <label
             htmlFor="load-transcript-file"
             className="flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg transition-colors cursor-pointer"
-            title="Load transcript from file"
+            title={t('load.transcript.from.file')}
           >
             <Upload size={16} />
-            Load Transcript
+            {t('load.transcript')}
           </label>
         </div>
 
         {showCalendar && (
           <div className="mb-3 bg-gray-800 rounded border border-gray-700">
             <div className="px-3 py-2 text-sm font-semibold border-b border-gray-700 flex items-center justify-between">
-              <span>Calendar (latest audio files)</span>
-              <button className="text-xs text-blue-400 hover:underline" onClick={() => setShowCalendar(false)}>Close</button>
+              <span>{t('calendar.latest.audio.files')}</span>
+              <button className="text-xs text-blue-400 hover:underline" onClick={() => setShowCalendar(false)}>{t('close')}</button>
             </div>
             {renderCalendar()}
           </div>
@@ -635,18 +692,18 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
           <div
             className="mb-3 bg-gray-900 rounded-lg p-3 text-sm text-gray-200 space-y-1"
             title={
-              `Audio File name: ${audioFileInfo?.fileName || 'n/a'}\n` +
-              `Audio File Size: ${audioFileInfo?.fileSize ? Math.round(audioFileInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
-              `Duration: ${audioFileInfo?.duration ? Math.round(audioFileInfo.duration) + 's' : 'n/a'}\n` +
-              `Recorded at: ${audioFileInfo?.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : 'n/a'}\n` +
-              `Transcript File Name: ${savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a'}\n` +
-              `Transcript File size: ${savedTranscriptInfo?.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : 'n/a'}\n` +
-              `Word Count: ${savedTranscriptInfo?.wordCount || 'n/a'}\n` +
-              `Transcribed at: ${savedTranscriptInfo?.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : 'n/a'}`
+              `${t('audio.file.name')} ${audioFileInfo?.fileName || t('n.a')}\n` +
+              `${t('audio.file.size')} ${audioFileInfo?.fileSize ? Math.round(audioFileInfo.fileSize / 1024) + ' KB' : t('n.a')}\n` +
+              `${t('duration')}: ${audioFileInfo?.duration ? Math.round(audioFileInfo.duration) + 's' : t('n.a')}\n` +
+              `${t('recorded')}: ${audioFileInfo?.recordingTime ? new Date(audioFileInfo.recordingTime).toLocaleString() : t('n.a')}\n` +
+              `${t('transcript.file.name')} ${savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || t('n.a')}\n` +
+              `${t('transcript.file.size')} ${savedTranscriptInfo?.fileSize ? Math.round(savedTranscriptInfo.fileSize / 1024) + ' KB' : t('n.a')}\n` +
+              `${t('word.count')}: ${savedTranscriptInfo?.wordCount || t('n.a')}\n` +
+              `${t('transcription')}: ${savedTranscriptInfo?.savedAt ? new Date(savedTranscriptInfo.savedAt).toLocaleString() : t('n.a')}`
             }
           >
-            <div>Audio File name: <span className="font-semibold">{audioFileInfo?.fileName || 'n/a'}</span></div>
-            <div>Transcript File Name: <span className="font-semibold">{savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || 'n/a'}</span></div>
+            <div>{t('audio.file.name')} <span className="font-semibold">{audioFileInfo?.fileName || t('n.a')}</span></div>
+            <div>{t('transcript.file.name')} <span className="font-semibold">{savedTranscriptInfo?.fileName || savedTranscriptInfo?.title || t('n.a')}</span></div>
           </div>
         )}
 
@@ -657,12 +714,12 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
               <div className="flex items-center gap-2 text-blue-400">
                 <Loader2 className="animate-spin" size={16} />
                 <span className="capitalize">
-                  {transcriptionProgress.stage === 'initializing' && 'Initializing Whisper...'}
-                  {transcriptionProgress.stage === 'model_loading' && 'Loading Whisper model (first time only)...'}
-                  {transcriptionProgress.stage === 'model_loaded' && 'Model ready, processing...'}
-                  {transcriptionProgress.stage === 'processing' && 'Transcribing with Whisper...'}
-                  {transcriptionProgress.stage === 'error' && 'Error occurred'}
-                  {!transcriptionProgress.stage && 'Processing...'}
+                  {transcriptionProgress.stage === 'initializing' && t('initializing.whisper')}
+                  {transcriptionProgress.stage === 'model_loading' && t('loading.whisper.model')}
+                  {transcriptionProgress.stage === 'model_loaded' && t('model.ready.processing')}
+                  {transcriptionProgress.stage === 'processing' && t('transcribing.with.whisper')}
+                  {transcriptionProgress.stage === 'error' && t('error.occurred')}
+                  {!transcriptionProgress.stage && t('processing')}
                 </span>
               </div>
               <span className="text-gray-400">{transcriptionProgress.progress}%</span>
@@ -680,20 +737,20 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
         {transcriptionStatus === 'completed' && !isTranscribing && (
           <div className="flex items-center gap-2 text-green-400 mb-2 text-sm">
             <CheckCircle2 size={16} />
-            <span>Transcription completed</span>
+            <span>{t('transcription.completed')}</span>
           </div>
         )}
 
         {transcriptionStatus === 'error' && !isTranscribing && (
           <div className="flex items-center gap-2 text-red-400 mb-2 text-sm">
-            <span>⚠️ Transcription failed</span>
+            <span>{t('transcription.failed')}</span>
           </div>
         )}
 
         {/* Transcript */}
         {transcript && (
           <div className="bg-gray-900 rounded-lg p-3 flex-1 overflow-y-auto">
-            <div className="text-xs text-gray-400 mb-2 font-semibold">Transcript content:</div>
+            <div className="text-xs text-gray-400 mb-2 font-semibold">{t('transcript.content')}</div>
             <div className="text-sm whitespace-pre-wrap text-gray-200">{transcript}</div>
           </div>
         )}
@@ -702,8 +759,8 @@ Transcribed at: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptInfo.sav
             {!transcript && !isTranscribing && !isRecording && (
               <div className="flex-1 flex items-center justify-center text-gray-500 text-sm text-center">
                 <div>
-                  <p className="mb-2">Start recording or upload an audio file</p>
-                  <p className="text-xs">Supported formats: WebM, MP3, WAV, OGG, M4A, FLAC</p>
+                  <p className="mb-2">{t('start.recording.or.upload')}</p>
+                  <p className="text-xs">{t('supported.formats')}</p>
                 </div>
               </div>
             )}

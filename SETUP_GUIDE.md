@@ -135,7 +135,7 @@ ollama --version
 
 **Pull the default model:**
 ```powershell
-ollama pull qwen2.5:1.5b
+ollama pull qwen3-vl:30b
 ```
 
 ### 7. Install Python Packages
@@ -277,6 +277,28 @@ npm run dev
 **Solution:**
 - Check if ports 3002 or 5174 are in use: `netstat -ano | findstr :3002`
 - Kill the process using the port or change the port in configuration
+
+## New Features Added (Latest Updates)
+
+### Audio & Voice Improvements
+- **High-Quality Recording**: 48kHz stereo, Opus codec, 128kbps bitrate
+- **No Audio Feedback**: Fixed microphone feedback during recording
+- **Voice Gender Selection**: Choose masculine/feminine voices for TTS
+- **Language-Dependent Voices**: Voice selection adapts to current language
+
+### UI/UX Enhancements
+- **Font Scale Factor**: Adjustable text size (1x-5x) with immediate effect
+- **Draggable Settings Window**: Move settings modal by dragging header
+- **Resizable Settings Window**: Resize by dragging borders/corners
+- **Language Support**: 8 languages (EN, ES, FR, DE, IT, PT, ZH, JA)
+
+### AI Improvements
+- **Smart Transcript Filtering**: AI only uses transcript tools for transcript queries
+- **Better Summarization**: Full LLM-generated summaries with proper timeouts
+- **Unit Testing**: Comprehensive tests for core functionality
+
+### Model Upgrade
+- **Default Model**: Upgraded from qwen2.5:1.5b to qwen3-vl:30b for better performance
 
 ## Summary of Required Software
 

@@ -4,7 +4,7 @@ const useStore = create((set, get) => ({
   // UI State
   micEnabled: false,
   speakerEnabled: false,
-  selectedLanguage: 'en',
+  selectedLanguage: localStorage.getItem('selectedLanguage') || 'en',
   showSettings: false,
   
   // Panel sizes (persisted)
@@ -24,10 +24,13 @@ const useStore = create((set, get) => ({
   // LLM state
   selectedModel: localStorage.getItem('selectedModel') || 'qwen2.5:1.5b',
   availableModels: [],
-  ollamaStatus: { state: 'idle', message: '', progress: 0 },
+  ollamaStatus: { state: 'idle', message: '', messageKey: null, messageParams: {}, progress: 0 },
   
   // Font scale factor (persisted)
   fontScaleFactor: parseFloat(localStorage.getItem('fontScaleFactor') || '1'),
+  
+  // Voice gender preference (persisted)
+  voiceGender: localStorage.getItem('voiceGender') || 'feminine', // 'feminine' or 'masculine'
   
   // Settings window position and size (persisted)
   settingsWindowPosition: JSON.parse(localStorage.getItem('settingsWindowPosition') || '{"x": 0, "y": 0}'),
@@ -44,7 +47,10 @@ const useStore = create((set, get) => ({
   // Actions
   setMicEnabled: (enabled) => set({ micEnabled: enabled }),
   setSpeakerEnabled: (enabled) => set({ speakerEnabled: enabled }),
-  setSelectedLanguage: (lang) => set({ selectedLanguage: lang }),
+  setSelectedLanguage: (lang) => {
+    localStorage.setItem('selectedLanguage', lang);
+    set({ selectedLanguage: lang });
+  },
   setShowSettings: (show) => set({ showSettings: show }),
   
   setPanelSizes: (sizes) => {
@@ -80,6 +86,11 @@ const useStore = create((set, get) => ({
     const clampedScale = Math.max(1, Math.min(5, parseFloat(scale) || 1));
     localStorage.setItem('fontScaleFactor', clampedScale.toString());
     set({ fontScaleFactor: clampedScale });
+  },
+  
+  setVoiceGender: (gender) => {
+    localStorage.setItem('voiceGender', gender);
+    set({ voiceGender: gender });
   },
   
   setSettingsWindowPosition: (position) => {

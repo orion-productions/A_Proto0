@@ -39,53 +39,68 @@ export const api = {
   
   // LLM with tool calling support
   chatWithLLM: async (model, messages, provider = 'ollama', onChunk, onToolCall) => {
-    const response = await fetch(`${API_BASE_URL}/llm/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, messages, provider, enableTools: true }),
-    });
+    // Create AbortController for timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullResponse = '';
+    try {
+      const response = await fetch(`${API_BASE_URL}/llm/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, messages, provider, enableTools: true }),
+        signal: controller.signal,
+      });
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      clearTimeout(timeoutId);
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n\n');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            return fullResponse;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            
-            // Handle different event types
-            if (parsed.type === 'tool_call' && onToolCall) {
-              onToolCall({ type: 'call', tool: parsed.tool, params: parsed.params });
-            } else if (parsed.type === 'tool_result' && onToolCall) {
-              onToolCall({ type: 'result', tool: parsed.tool, result: parsed.result });
-            } else if (parsed.type === 'final_response' && onToolCall) {
-              onToolCall({ type: 'final' });
-            } else if (parsed.content) {
-              fullResponse += parsed.content;
-              if (onChunk) onChunk(parsed.content);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              return fullResponse;
             }
-          } catch (e) {
-            // Skip invalid JSON
+            try {
+              const parsed = JSON.parse(data);
+
+              // Handle different event types
+              if (parsed.type === 'tool_call' && onToolCall) {
+                onToolCall({ type: 'call', tool: parsed.tool, params: parsed.params });
+              } else if (parsed.type === 'tool_result' && onToolCall) {
+                onToolCall({ type: 'result', tool: parsed.tool, result: parsed.result });
+              } else if (parsed.type === 'final_response' && onToolCall) {
+                onToolCall({ type: 'final' });
+              } else if (parsed.content) {
+                fullResponse += parsed.content;
+                if (onChunk) onChunk(parsed.content);
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
           }
         }
       }
-    }
 
-    return fullResponse;
+      return fullResponse;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. The AI model is taking too long to respond. Please try again or use a simpler question.');
+      }
+      throw error;
+    }
   },
   
   getModels: async () => {

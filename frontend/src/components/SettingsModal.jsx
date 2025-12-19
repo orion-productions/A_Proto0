@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import useStore from '../store/useStore';
+import { useTranslation } from '../utils/i18n';
 
 function SettingsModal() {
   const {
@@ -10,11 +11,16 @@ function SettingsModal() {
     setShowSettings,
     fontScaleFactor,
     setFontScaleFactor,
+    voiceGender,
+    setVoiceGender,
     settingsWindowPosition,
     settingsWindowSize,
     setSettingsWindowPosition,
-    setSettingsWindowSize
+    setSettingsWindowSize,
+    selectedLanguage
   } = useStore();
+  
+  const t = useTranslation(selectedLanguage);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(null); // 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
@@ -192,7 +198,7 @@ function SettingsModal() {
           style={{ padding: '16px', cursor: isDragging ? 'grabbing' : 'grab' }}
           onMouseDown={handleMouseDown}
         >
-          <h2 className="text-xl font-bold">Settings</h2>
+          <h2 className="text-xl font-bold">{t('settings.title')}</h2>
           <button
             onClick={() => setShowSettings(false)}
             className="hover:bg-gray-700 rounded-lg transition-colors"
@@ -206,7 +212,7 @@ function SettingsModal() {
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto', flex: 1 }}>
           {/* LLM Model Selection */}
           <div>
-            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>LLM Model</label>
+            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>{t('llm.model')}</label>
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
@@ -221,14 +227,14 @@ function SettingsModal() {
               ))}
             </select>
             <p className="text-xs text-gray-400" style={{ marginTop: '8px' }}>
-              Current model: {selectedModel}
+              {t('current.model')}: {selectedModel}
             </p>
           </div>
 
           {/* Font Scale Factor */}
           <div>
             <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>
-              Font Scale Factor: {fontScaleFactor.toFixed(1)}x
+              {t('font.scale.factor')}: {fontScaleFactor.toFixed(1)}x
             </label>
             <input
               type="range"
@@ -248,13 +254,30 @@ function SettingsModal() {
               <span>5.0x</span>
             </div>
             <p className="text-xs text-gray-400" style={{ marginTop: '8px' }}>
-              Adjust the font size throughout the application. Changes apply immediately.
+              {t('font.scale.description')}
+            </p>
+          </div>
+
+          {/* Voice Gender Selection */}
+          <div>
+            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>{t('voice.gender')}</label>
+            <select
+              value={voiceGender}
+              onChange={(e) => setVoiceGender(e.target.value)}
+              className="w-full bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ padding: '8px 12px' }}
+            >
+              <option value="feminine">{t('voice.feminine')}</option>
+              <option value="masculine">{t('voice.masculine')}</option>
+            </select>
+            <p className="text-xs text-gray-400" style={{ marginTop: '8px' }}>
+              {t('voice.gender.description')}
             </p>
           </div>
 
           {/* Ollama Connection */}
           <div>
-            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>Ollama Connection</label>
+            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>{t('ollama.connection')}</label>
             <input
               type="text"
               defaultValue="http://localhost:11434"
@@ -263,23 +286,23 @@ function SettingsModal() {
               placeholder="http://localhost:11434"
             />
             <p className="text-xs text-gray-400" style={{ marginTop: '8px' }}>
-              Make sure Ollama is running on your system
+              {t('ollama.connection.hint')}
             </p>
           </div>
 
           {/* API Keys (Future) */}
           <div>
-            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>API Keys</label>
+            <label className="block text-sm font-semibold" style={{ marginBottom: '8px' }}>{t('api.keys')}</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <input
                 type="password"
-                placeholder="OpenAI API Key (optional)"
+                placeholder={t('openai.api.key')}
                 className="w-full bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 style={{ padding: '8px 12px' }}
               />
               <input
                 type="password"
-                placeholder="Anthropic API Key (optional)"
+                placeholder={t('anthropic.api.key')}
                 className="w-full bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 style={{ padding: '8px 12px' }}
               />
@@ -288,10 +311,9 @@ function SettingsModal() {
 
           {/* About */}
           <div className="border-t border-gray-700" style={{ paddingTop: '16px' }}>
-            <h3 className="font-semibold" style={{ marginBottom: '8px' }}>About</h3>
+            <h3 className="font-semibold" style={{ marginBottom: '8px' }}>{t('about')}</h3>
             <p className="text-sm text-gray-400">
-              AI Unseen Workspace v1.0.0 - A powerful AI assistant with multimodal capabilities,
-              MCP tool integration, and 3D visualization.
+              {t('about.text')}
             </p>
           </div>
         </div>
@@ -302,7 +324,7 @@ function SettingsModal() {
             className="bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
             style={{ padding: '8px 24px' }}
           >
-            Close
+            {t('close')}
           </button>
         </div>
       </div>

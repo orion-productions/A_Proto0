@@ -1,6 +1,7 @@
 import React from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Settings } from 'lucide-react';
 import useStore from '../store/useStore';
+import { useTranslation, t } from '../utils/i18n';
 
 function Header() {
   const {
@@ -13,6 +14,16 @@ function Header() {
     setShowSettings,
     ollamaStatus
   } = useStore();
+  
+  const translate = useTranslation(selectedLanguage);
+  
+  // Translate ollama status message dynamically based on current language
+  const getOllamaMessage = () => {
+    if (!ollamaStatus?.messageKey) {
+      return ollamaStatus?.message || '';
+    }
+    return t(ollamaStatus.messageKey, selectedLanguage, ollamaStatus.messageParams || {});
+  };
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -30,11 +41,11 @@ function Header() {
       <div className="flex items-center gap-2">
         <div className="flex flex-col">
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            AI Unseen Workspace
+            {translate('app.title')}
           </h1>
-          {ollamaStatus?.message && (
+          {getOllamaMessage() && (
             <div className="text-xs text-gray-300">
-              {ollamaStatus.message}
+              {getOllamaMessage()}
               {ollamaStatus.state === 'loading' && ollamaStatus.progress !== undefined && (
                 <span className="ml-2 text-blue-400">{ollamaStatus.progress}%</span>
               )}
@@ -50,7 +61,7 @@ function Header() {
           className={`p-2 rounded-lg transition-colors ${
             micEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-700 hover:bg-gray-600'
           }`}
-          title={micEnabled ? 'Microphone On' : 'Microphone Off'}
+          title={micEnabled ? translate('mic.on') : translate('mic.off')}
         >
           {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
         </button>
@@ -61,7 +72,7 @@ function Header() {
           className={`p-2 rounded-lg transition-colors ${
             speakerEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-700 hover:bg-gray-600'
           }`}
-          title={speakerEnabled ? 'Speaker On' : 'Speaker Off'}
+          title={speakerEnabled ? translate('speaker.on') : translate('speaker.off')}
         >
           {speakerEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
         </button>
@@ -81,7 +92,7 @@ function Header() {
         <button
           onClick={() => setShowSettings(true)}
           className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
-          title="User Settings"
+          title={translate('settings')}
         >
           <Settings size={20} />
         </button>

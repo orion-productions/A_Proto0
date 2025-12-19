@@ -3,6 +3,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { Plus, MessageSquare, Trash2, Edit2, Check, X } from 'lucide-react';
 import useStore from '../store/useStore';
 import { api } from '../api/api';
+import { useTranslation } from '../utils/i18n';
 
 function LeftPanel() {
   const {
@@ -10,19 +11,22 @@ function LeftPanel() {
     currentChatId,
     scratchpadContent,
     leftPanelSizes,
+    selectedLanguage,
     setChats,
     setCurrentChatId,
     setScratchpadContent,
     setMessages,
     setLeftPanelSizes
   } = useStore();
+  
+  const t = useTranslation(selectedLanguage);
 
   const [editingChatId, setEditingChatId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
 
   const handleNewChat = async () => {
     try {
-      const newChat = await api.createChat('New Chat');
+      const newChat = await api.createChat(t('new.chat'));
       setChats([newChat, ...chats]);
       setCurrentChatId(newChat.id);
       setMessages([]);
@@ -102,14 +106,14 @@ function LeftPanel() {
                 className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors"
               >
                 <Plus size={20} />
-                New Chat
+                {t('new.chat')}
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto">
               {chats.length === 0 ? (
                 <div className="p-4 text-gray-500 text-center">
-                  No chats yet. Create one to get started!
+                  {t('no.chat.selected')}
                 </div>
               ) : (
                 <div className="p-2">
@@ -179,11 +183,11 @@ function LeftPanel() {
 
         <Panel defaultSize={leftPanelSizes[1]} minSize={15}>
           <div className="h-full flex flex-col">
-            <div className="p-2 bg-gray-750 font-semibold text-sm border-t border-gray-700">Scratchpad</div>
+            <div className="p-2 bg-gray-750 font-semibold text-sm border-t border-gray-700">{t('scratchpad')}</div>
             <textarea
               value={scratchpadContent}
               onChange={(e) => setScratchpadContent(e.target.value)}
-              placeholder="Write notes, paste text..."
+              placeholder={t('scratchpad.placeholder')}
               className="flex-1 bg-gray-900 text-white p-3 resize-none focus:outline-none border-none"
             />
           </div>

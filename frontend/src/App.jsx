@@ -7,9 +7,10 @@ import RightPanel from './components/RightPanel';
 import SettingsModal from './components/SettingsModal';
 import useStore from './store/useStore';
 import { api } from './api/api';
+import { t } from './utils/i18n';
 
 function App() {
-  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, setOllamaStatus, selectedModel, showSettings, fontScaleFactor } = useStore();
+  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, setOllamaStatus, selectedModel, showSettings, fontScaleFactor, selectedLanguage } = useStore();
   const progressIntervalRef = useRef(null);
   const progressRef = useRef(0);
   const pollModelReady = async (modelName, attempts = 6, delayMs = 3000) => {
@@ -30,7 +31,7 @@ function App() {
     // Load initial data and check Ollama
     const loadData = async () => {
       try {
-        setOllamaStatus({ state: 'starting', message: 'ollama app starting', progress: 0 });
+        setOllamaStatus({ state: 'starting', message: '', messageKey: 'ollama.app.starting', messageParams: {}, progress: 0 });
         const [chats, tools, models] = await Promise.all([
           api.getChats(),
           api.getMCPTools(),
@@ -48,7 +49,7 @@ function App() {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
         }
-        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
+        setOllamaStatus({ state: 'error', message: '', messageKey: 'ollama.not.found', messageParams: {}, progress: 0 });
           return;
         }
 
@@ -57,10 +58,10 @@ function App() {
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = setInterval(() => {
           progressRef.current = Math.min(progressRef.current + Math.random() * 15, 95); // Cap at 95% until done
-          setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: Math.round(progressRef.current) });
+          setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: Math.round(progressRef.current) });
         }, 200);
         
-        setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: 0 });
+        setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: 0 });
         
         // Add timeout to warmup (60 seconds)
         const warmupPromise = api.warmupModel(selectedModel);
@@ -110,10 +111,10 @@ function App() {
           const deviceInfo = sizeGB > 0 ? `${device} - ${memLabel}` : device;
           
           if (sizeGB > 0 || modelInfo) {
-            setOllamaStatus({ state: 'ready', message: `ollama model ${selectedModel} is ready. ${deviceInfo}`, progress: 100 });
+            setOllamaStatus({ state: 'ready', message: '', messageKey: 'ollama.model.ready', messageParams: { model: selectedModel, deviceInfo }, progress: 100 });
           } else {
             // No confirmation from status; mark as error to avoid hanging at 95%
-            setOllamaStatus({ state: 'error', message: `Model ${selectedModel} did not report ready. Check Ollama logs or GPU.`, progress: 0 });
+            setOllamaStatus({ state: 'error', message: '', messageKey: 'model.not.ready', messageParams: { model: selectedModel }, progress: 0 });
           }
         } catch (warmupError) {
           if (progressIntervalRef.current) {
@@ -122,7 +123,7 @@ function App() {
           }
           const errorMsg = warmupError.response?.data?.error || warmupError.message || 'Warmup failed';
           console.warn('Warmup failed:', errorMsg);
-          setOllamaStatus({ state: 'error', message: `Warmup failed: ${errorMsg}`, progress: 0 });
+          setOllamaStatus({ state: 'error', message: '', messageKey: 'warmup.failed', messageParams: { error: errorMsg }, progress: 0 });
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -130,7 +131,7 @@ function App() {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
         }
-        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
+        setOllamaStatus({ state: 'error', message: '', messageKey: 'ollama.not.found', messageParams: {}, progress: 0 });
       }
     };
     loadData();
@@ -145,10 +146,10 @@ function App() {
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = setInterval(() => {
           progressRef.current = Math.min(progressRef.current + Math.random() * 15, 95); // Cap at 95% until done
-          setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: Math.round(progressRef.current) });
+          setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: Math.round(progressRef.current) });
         }, 200);
         
-        setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading`, progress: 0 });
+        setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: 0 });
         
         // Add timeout to warmup (2 minutes)
         const warmupPromise = api.warmupModel(selectedModel);
@@ -196,7 +197,7 @@ function App() {
           // Format device and memory info
           console.log(`Final values - device: ${device}, sizeGB: ${sizeGB}`);
           const deviceInfo = sizeGB > 0 ? `${device} - ${sizeGB}GB` : device;
-          setOllamaStatus({ state: 'ready', message: `ollama model ${selectedModel} is ready. ${deviceInfo}`, progress: 100 });
+          setOllamaStatus({ state: 'ready', message: '', messageKey: 'ollama.model.ready', messageParams: { model: selectedModel, deviceInfo }, progress: 100 });
         } catch (warmupError) {
           if (progressIntervalRef.current) {
             clearInterval(progressIntervalRef.current);
@@ -205,7 +206,7 @@ function App() {
           // If timeout, model might still be loading in background - show warning but continue
           if (warmupError.message.includes('timeout')) {
             console.warn('Warmup timed out, but model may still be loading');
-            setOllamaStatus({ state: 'loading', message: `ollama app model ${selectedModel} is loading (this may take a while...)`, progress: 95 });
+            setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading.long', messageParams: { model: selectedModel }, progress: 95 });
           } else {
             throw warmupError;
           }
@@ -216,7 +217,7 @@ function App() {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
         }
-        setOllamaStatus({ state: 'error', message: 'Ollama not found', progress: 0 });
+        setOllamaStatus({ state: 'error', message: '', messageKey: 'ollama.not.found', messageParams: {}, progress: 0 });
       }
     };
     if (selectedModel) {

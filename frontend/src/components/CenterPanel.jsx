@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Image as ImageIcon, Loader2 } from 'lucide-react';
 import useStore from '../store/useStore';
 import { api } from '../api/api';
+import { useTranslation } from '../utils/i18n';
+import { getVoiceForLanguage, waitForVoices } from '../utils/voiceSelection';
 
 function CenterPanel() {
   const {
@@ -11,10 +13,14 @@ function CenterPanel() {
     selectedModel,
     micEnabled,
     speakerEnabled,
+    selectedLanguage,
+    voiceGender,
     setMessages,
     setIsLoading,
     addMessage
   } = useStore();
+  
+  const t = useTranslation(selectedLanguage);
 
   const [input, setInput] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
@@ -66,9 +72,31 @@ function CenterPanel() {
     }
   };
 
-  const speakText = (text) => {
+  const speakText = async (text) => {
     if (speakerEnabled && 'speechSynthesis' in window) {
+      // Wait for voices to be loaded
+      await waitForVoices();
+      
+      // Get the appropriate voice for the current language and gender preference
+      const voice = getVoiceForLanguage(selectedLanguage, voiceGender);
+      
       const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Set voice if found
+      if (voice) {
+        utterance.voice = voice;
+      }
+      
+      // Set language to match selected language
+      utterance.lang = selectedLanguage === 'zh' ? 'zh-CN' : 
+                      selectedLanguage === 'ja' ? 'ja-JP' :
+                      selectedLanguage === 'pt' ? 'pt-BR' :
+                      selectedLanguage === 'es' ? 'es-ES' :
+                      selectedLanguage === 'fr' ? 'fr-FR' :
+                      selectedLanguage === 'de' ? 'de-DE' :
+                      selectedLanguage === 'it' ? 'it-IT' :
+                      'en-US';
+      
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -96,7 +124,7 @@ function CenterPanel() {
       const tempAssistantMsg = {
         id: 'temp',
         role: 'assistant',
-        content: '⏳ Thinking...',
+        content: t('thinking'),
         isTyping: true,
         timestamp: Date.now()
       };
@@ -123,7 +151,6 @@ function CenterPanel() {
           const toolIdMap = {
             // General tools
             'get_weather': 'weather',
-            'add_numbers': 'add',
             // Jira tools
             'get_jira_issue': 'jira',
             'search_jira_issues': 'jira',
@@ -289,8 +316,8 @@ function CenterPanel() {
       {!currentChatId ? (
         <div className="flex-1 flex items-center justify-center text-gray-500">
           <div className="text-center">
-            <h2 className="text-2xl font-bold mb-2">Welcome to AI Unseen Workspace</h2>
-            <p>Create a new chat to get started</p>
+            <h2 className="text-2xl font-bold mb-2">{t('app.title')}</h2>
+            <p>{t('no.chat.selected')}</p>
           </div>
         </div>
       ) : (
@@ -347,7 +374,7 @@ function CenterPanel() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                title="Add Image"
+                title={t('add.image')}
               >
                 <ImageIcon size={20} />
               </button>
@@ -355,7 +382,7 @@ function CenterPanel() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
+                placeholder={t('type.message')}
                 rows="1"
                 className="flex-1 bg-gray-800 text-white p-3 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
