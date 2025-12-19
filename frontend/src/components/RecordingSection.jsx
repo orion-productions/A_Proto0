@@ -3,6 +3,7 @@ import { Mic, Square, Upload, FileAudio, Loader2, CheckCircle2, CalendarDays, Fi
 import useStore from '../store/useStore';
 import { api } from '../api/api';
 import Spectrogram from './Spectrogram';
+import CalendarModal from './CalendarModal';
 import { startRealtimeTranscription, stopRealtimeTranscription } from '../utils/speechToText';
 import { useTranslation } from '../utils/i18n';
 // Lazy load Whisper to avoid breaking app on startup
@@ -20,7 +21,7 @@ function RecordingSection() {
   const [audioFileInfo, setAudioFileInfo] = useState(null); // Store audio file metadata
   const [savedTranscriptInfo, setSavedTranscriptInfo] = useState(null); // Store saved transcript metadata
   const [audioHistory, setAudioHistory] = useState([]);
-  const [showCalendar, setShowCalendar] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
   const audioBlobRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -493,35 +494,6 @@ function RecordingSection() {
     }
   };
 
-  // Calendar view (simple weekly list)
-  const renderCalendar = () => {
-    if (!audioHistory.length) {
-      return <div className="text-sm text-gray-300 p-3">{t('no.audio.files.yet')}</div>;
-    }
-    return (
-      <div className="p-3 text-sm text-gray-200 space-y-2 max-h-64 overflow-y-auto">
-        {audioHistory.map((item, idx) => (
-          <div key={idx} className="bg-gray-700 rounded p-2 flex justify-between items-center">
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate" title={item.fileName}>{item.fileName}</div>
-              <div className="text-xs text-gray-300">
-                {new Date(item.recordingTime).toLocaleString()} • {Math.round(item.duration)}s
-              </div>
-            </div>
-            <button
-              className="ml-2 text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
-              onClick={() => {
-                setAudioFileInfo(item);
-                setShowCalendar(false);
-              }}
-            >
-              {t('select')}
-            </button>
-          </div>
-        ))}
-      </div>
-    );
-  };
 
   const renderInfoPanels = () => {
     const audioTooltip = audioFileInfo
@@ -635,7 +607,7 @@ ${t('transcription')}: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptI
             <Upload size={18} />
           </button>
           <button
-            onClick={() => setShowCalendar(!showCalendar)}
+            onClick={() => setShowCalendarModal(true)}
             className="flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg transition-colors"
           >
             <CalendarDays size={16} />
@@ -667,15 +639,13 @@ ${t('transcription')}: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptI
           </label>
         </div>
 
-        {showCalendar && (
-          <div className="mb-3 bg-gray-800 rounded border border-gray-700">
-            <div className="px-3 py-2 text-sm font-semibold border-b border-gray-700 flex items-center justify-between">
-              <span>{t('calendar.latest.audio.files')}</span>
-              <button className="text-xs text-blue-400 hover:underline" onClick={() => setShowCalendar(false)}>{t('close')}</button>
-            </div>
-            {renderCalendar()}
-          </div>
-        )}
+        <CalendarModal
+          isOpen={showCalendarModal}
+          onClose={() => setShowCalendarModal(false)}
+          audioHistory={audioHistory}
+          onSelectAudio={setAudioFileInfo}
+          onTranscribe={handleManualTranscribe}
+        />
 
         {/* Spectrogram while recording; otherwise show info block with tooltips */}
         {isRecording ? (
