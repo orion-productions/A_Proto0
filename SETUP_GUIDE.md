@@ -10,7 +10,40 @@ This guide documents all the steps required to set up the development environmen
 
 ## Step-by-Step Installation
 
-### 1. Install Node.js (LTS Version)
+### 1. Install Git
+
+**Using winget (recommended):**
+```powershell
+winget install Git.Git --accept-package-agreements --accept-source-agreements
+```
+
+**Or download manually:**
+- Visit https://git-scm.com/download/win
+- Download and run the installer
+- Use default settings (recommended)
+- Verify installation:
+```powershell
+git --version
+```
+
+**Note:** After installation, you may need to restart your terminal or refresh the PATH:
+```powershell
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+```
+
+**Configure Git (required before first commit):**
+```powershell
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
+
+Or configure only for this repository:
+```powershell
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+```
+
+### 2. Install Node.js (LTS Version)
 
 **Using winget (recommended):**
 ```powershell
@@ -31,7 +64,7 @@ npm --version
 2. Install Node 22: Download from https://nodejs.org/dist/v22.21.1/node-v22.21.1-x64.msi
 3. Open a new PowerShell window to refresh PATH
 
-### 2. Install Python 3.11+
+### 3. Install Python 3.11+
 
 **Using winget:**
 ```powershell
@@ -47,7 +80,7 @@ winget install Python.Python.3.11 --accept-package-agreements --accept-source-ag
 python --version
 ```
 
-### 3. Install FFmpeg
+### 4. Install FFmpeg
 
 **Using winget:**
 ```powershell
@@ -68,7 +101,7 @@ choco install ffmpeg
 ffmpeg -version
 ```
 
-### 4. Install Visual Studio Build Tools (Required for Native Modules)
+### 5. Install Visual Studio Build Tools (Required for Native Modules)
 
 This is required to compile native Node.js modules like `better-sqlite3`.
 
@@ -89,7 +122,7 @@ winget install Microsoft.VisualStudio.2022.BuildTools --accept-package-agreement
 & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 ```
 
-### 5. Install Ollama
+### 6. Install Ollama
 
 **Download and install:**
 - Visit https://ollama.ai
@@ -105,7 +138,7 @@ ollama --version
 ollama pull qwen2.5:1.5b
 ```
 
-### 6. Install Python Packages
+### 7. Install Python Packages
 
 Install Whisper for audio transcription:
 ```powershell
@@ -126,7 +159,7 @@ This will also install required dependencies:
 python -c "import whisper; print('Whisper installed successfully!')"
 ```
 
-### 7. Install Project Dependencies
+### 8. Install Project Dependencies
 
 **Navigate to project directory:**
 ```powershell
@@ -153,7 +186,7 @@ cd ..
 npm rebuild better-sqlite3
 ```
 
-### 8. Fix PowerShell Execution Policy (if needed)
+### 9. Fix PowerShell Execution Policy (if needed)
 
 If you encounter script execution errors:
 ```powershell
@@ -165,6 +198,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 After completing all installations, verify everything works:
 
 ```powershell
+# Check Git
+git --version
+
 # Check Node.js
 node --version    # Should show v22.x.x
 npm --version
@@ -246,6 +282,7 @@ npm run dev
 
 | Software | Version | Purpose |
 |----------|---------|---------|
+| Git | Latest | Version control |
 | Node.js | 22.x LTS | JavaScript runtime |
 | Python | 3.11+ | Whisper transcription |
 | FFmpeg | Latest | Audio processing |

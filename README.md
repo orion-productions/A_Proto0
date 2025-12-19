@@ -25,6 +25,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 
 ## Prerequisites
 
+- Git (for version control)
 - Node.js 22.x LTS (not 24.x - required for native module compatibility)
 - [Ollama](https://ollama.ai) installed and running
 - qwen2.5:1.5b model pulled in Ollama (or any compatible model)
