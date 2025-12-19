@@ -1,0 +1,29 @@
+{
+  "name": "ai-unseen-workspace",
+  "version": "1.0.0",
+  "description": "AI-powered workspace with LLM, MCP tools, and multimedia features",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "node backend/server.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "test": "node --test backend/**/*.test.js",
+    "test:frontend": "cd frontend && npm run test",
+    "test:all": "npm run test && npm run test:frontend",
+    "test:coverage": "npm run test && cd frontend && npm run test:coverage"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "axios": "^1.6.2",
+    "uuid": "^9.0.1",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.3.1",
+    "better-sqlite3": "^9.2.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
+

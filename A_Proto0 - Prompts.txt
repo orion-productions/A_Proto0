@@ -1,0 +1,25 @@
+
+
+
+NEW LAPTOP
+
+
+
+I just downloaded that codebase from Gitbub project https://github.com/orion-productions/A_Proto0 
+I got the zip file related to that repository, the zip called "A_Proto0-main" is still in Download directory... inside this zip file is a directory called A_Proto0-main, and it corresponds to the A_Proto0 where I opened Cursor, where we are right now.
+
+Launch the 2 servers in local hosts.
+Please map them to:
+- Backend: http://localhost:3002
+- Frontend: http://localhost:5174
+And provide me with the links (with hyperlink so I can click on them) 
+
+
+
+I would like that - in the settings - we have a scale factor that applies to the fonts: the user should be able to change this number (by default it is 1, values bellow 1 are not valid, values above 5 are not valid)), and when changing the font size the effect should be immediate (in the settings menu and in the app everywhere) so that the user can see the effect of the change.
+What implementation approach would you suggest?
+
+
+
+Settings window width is OK now. But Settings window height still scales, and it should not (the scrolling bar should appear as soon as content does not fit anymore.
+User should be able to resize the Settings window by grabbing a border. User should also be able to move the Settings window to a different location when grabbing the Settings window at the settings name header location. 

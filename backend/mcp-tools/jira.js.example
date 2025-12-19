@@ -1,0 +1,126 @@
+// Jira MCP Tool - Template
+// Copy this file to jira.js and implement the functions
+
+import axios from 'axios';
+
+// Configuration (should be in environment variables)
+const JIRA_BASE_URL = process.env.JIRA_BASE_URL || '';
+const JIRA_EMAIL = process.env.JIRA_EMAIL || '';
+const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || '';
+
+// Example: Get Jira issue
+const getJiraIssue = async (issueKey) => {
+  try {
+    const response = await axios.get(
+      `${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}`,
+      {
+        auth: {
+          username: JIRA_EMAIL,
+          password: JIRA_API_TOKEN,
+        },
+      }
+    );
+
+    return {
+      key: response.data.key,
+      summary: response.data.fields.summary,
+      status: response.data.fields.status.name,
+      assignee: response.data.fields.assignee?.displayName || 'Unassigned',
+      // ... more fields
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
+// Example: Create Jira issue
+const createJiraIssue = async (projectKey, summary, description, issueType = 'Task') => {
+  try {
+    const response = await axios.post(
+      `${JIRA_BASE_URL}/rest/api/3/issue`,
+      {
+        fields: {
+          project: { key: projectKey },
+          summary,
+          description: {
+            type: 'doc',
+            version: 1,
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: description }],
+              },
+            ],
+          },
+          issuetype: { name: issueType },
+        },
+      },
+      {
+        auth: {
+          username: JIRA_EMAIL,
+          password: JIRA_API_TOKEN,
+        },
+      }
+    );
+
+    return { issueKey: response.data.key, success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
+// Export tool implementation
+export default {
+  getJiraIssue,
+  createJiraIssue,
+  definition: [
+    {
+      type: 'function',
+      function: {
+        name: 'get_jira_issue',
+        description: 'Get information about a Jira issue by its key (e.g., PROJ-123)',
+        parameters: {
+          type: 'object',
+          properties: {
+            issueKey: {
+              type: 'string',
+              description: 'The Jira issue key (e.g., PROJ-123)',
+            },
+          },
+          required: ['issueKey'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'create_jira_issue',
+        description: 'Create a new Jira issue',
+        parameters: {
+          type: 'object',
+          properties: {
+            projectKey: {
+              type: 'string',
+              description: 'The Jira project key (e.g., PROJ)',
+            },
+            summary: {
+              type: 'string',
+              description: 'The issue summary/title',
+            },
+            description: {
+              type: 'string',
+              description: 'The issue description',
+            },
+            issueType: {
+              type: 'string',
+              description: 'The issue type (Task, Bug, Story, etc.)',
+              enum: ['Task', 'Bug', 'Story', 'Epic'],
+            },
+          },
+          required: ['projectKey', 'summary', 'description'],
+        },
+      },
+    },
+  ],
+};
+

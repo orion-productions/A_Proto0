@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+uploads/
+*.db
+*.sqlite
+
+# Audio/video files (often large and don't need versioning)
+backend/audio/
+*.webm
+*.mp3
+*.wav
+*.mp4
+*.avi
+
