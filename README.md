@@ -24,6 +24,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 - 🔤 **Font Scale Factor**: Adjustable font size scaling (1x to 5x) with immediate effect throughout the application
 - 🪟 **Customizable Settings Window**: Draggable and resizable settings modal with persistent position and size
 - 🌍 **Multi-language Support**: Full internationalization (English, Spanish, French, German, Italian, Portuguese, Chinese, Japanese)
+- 📅 **Audio Calendar**: Interactive calendar view for managing audio recordings and transcripts with date-based navigation
 - 🧪 **Comprehensive Testing**: Unit tests for core functionality including transcript tool filtering
 
 ## Prerequisites
@@ -110,24 +111,32 @@ Current test coverage includes:
    - Load an audio file (MP3, WAV, WebM, MP4, OGG, FLAC, etc.)
    - Click the "Transcript" button to transcribe using local Whisper
    - Transcripts are saved as `.transcript.json` files matching the audio filename
-8. **Query Transcripts**: Use natural language to search transcripts (AI automatically filters transcript tools for general questions):
-   - "show the latest transcript"
-   - "find sentences where 'keyword' is mentioned"
-   - "summarize the transcript" (full LLM-generated summary)
-9. **Scratchpad**: Write notes in the bottom-left section
-10. **Settings**: Click the settings icon to configure models and API keys
-11. **Font Scale Factor**:
+8. **Audio Calendar**:
+   - Click the "Calendar" button in the recording section to open the audio calendar
+   - Navigate between months using the arrow buttons
+   - Audio files are displayed as colored dots on their recording dates (color indicates duration: blue=short, orange=medium, red=long)
+   - Click on any date to see all audio files recorded on that day
+   - Select an audio file to load it into the main interface
+   - Check transcript availability status for each audio file
+   - Click "Transcribe Now" to generate transcripts for audio files without them
+10. **Query Transcripts**: Use natural language to search transcripts (AI automatically filters transcript tools for general questions):
+    - "show the latest transcript"
+    - "find sentences where 'keyword' is mentioned"
+    - "summarize the transcript" (full LLM-generated summary)
+11. **Scratchpad**: Write notes in the bottom-left section
+13. **Settings**: Click the settings icon to configure models and API keys
+14. **Font Scale Factor**:
     - Open Settings and adjust the "Font Scale Factor" slider (1.0x to 5.0x)
     - Changes apply immediately to all text in the application
     - Setting is persisted and restored on next session
-12. **Settings Window Controls**:
+15. **Settings Window Controls**:
     - **Move**: Click and drag the "Settings" header to reposition the window
     - **Resize**: Click and drag any border or corner to resize the window
     - Window position and size are automatically saved and restored
-13. **Voice Gender Selection**:
+16. **Voice Gender Selection**:
     - In Settings, choose between masculine and feminine voices for text-to-speech
     - Voice selection adapts to the current language setting
-14. **Language Settings**:
+17. **Language Settings**:
     - Change language in Settings to switch the entire interface (8 languages supported)
     - All text, including chat names and error messages, updates immediately
 
