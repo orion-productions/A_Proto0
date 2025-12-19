@@ -23,3 +23,9 @@ What implementation approach would you suggest?
 
 Settings window width is OK now. But Settings window height still scales, and it should not (the scrolling bar should appear as soon as content does not fit anymore.
 User should be able to resize the Settings window by grabbing a border. User should also be able to move the Settings window to a different location when grabbing the Settings window at the settings name header location. 
+
+
+About the calendar.... when pushing the calendar button, I would like to see a calendar pop up. On that calendar, I would see positioned the audio files (at the right time, on the right day, with the right length), I can select one audio file, or close the window.
+If I select an audio file, and if there is a corresponding transcript file, then information for both are displayed. If transcript file is not available, then I can transcribe it.
+
+

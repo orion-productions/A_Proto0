@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar as CalendarIcon, Clock, FileAudio, FileText, Play, Download } from 'lucide-react';
-import { useTranslation } from '../utils/i18n';
+import useStore from '../store/useStore';
+import { t } from '../utils/i18n';
 
 const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscribe }) => {
-  const { t } = useTranslation();
+  const { selectedLanguage } = useStore();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
   const [transcriptsMap, setTranscriptsMap] = useState(new Map());
@@ -145,7 +146,7 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
             <CalendarIcon className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-semibold text-white">{t('audio.calendar')}</h2>
+            <h2 className="text-lg font-semibold text-white">{t('audio.calendar', selectedLanguage)}</h2>
           </div>
           <button
             onClick={onClose}
@@ -239,7 +240,7 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
 
               {selectedDateAudio.length === 0 ? (
                 <div className="text-gray-400 text-center py-8">
-                  {t('no.audio.files.on.this.date')}
+                  {t('no.audio.files.on.this.date', selectedLanguage)}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -269,19 +270,19 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
                         {hasTranscript(audio) ? (
                           <div className="flex items-center gap-2 text-green-400">
                             <FileText className="w-4 h-4" />
-                            <span className="text-sm">{t('transcript.available')}</span>
+                            <span className="text-sm">{t('transcript.available', selectedLanguage)}</span>
                           </div>
                         ) : (
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 text-yellow-400">
                               <FileText className="w-4 h-4" />
-                              <span className="text-sm">{t('transcript.not.available')}</span>
+                              <span className="text-sm">{t('transcript.not.available', selectedLanguage)}</span>
                             </div>
                             <button
                               onClick={() => handleTranscribe(audio)}
                               className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors"
                             >
-                              {t('transcribe.now')}
+                              {t('transcribe.now', selectedLanguage)}
                             </button>
                           </div>
                         )}
@@ -293,7 +294,7 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
                         className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white text-sm py-2 px-3 rounded transition-colors flex items-center justify-center gap-2"
                       >
                         <Play className="w-4 h-4" />
-                        {t('select.audio.file')}
+                        {t('select.audio.file', selectedLanguage)}
                       </button>
                     </div>
                   ))}
