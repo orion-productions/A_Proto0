@@ -4,7 +4,7 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import { dirname, join, isAbsolute } from 'path';
+import { dirname, join, isAbsolute, extname } from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { exec } from 'child_process';
@@ -412,7 +412,7 @@ app.delete('/api/transcripts/:id', (req, res) => {
 // Get list of audio files with metadata
 app.get('/api/audio-files', (req, res) => {
   try {
-    const audioDir = path.join(__dirname, 'audio');
+    const audioDir = join(__dirname, 'audio');
     if (!fs.existsSync(audioDir)) {
       return res.json({ audioFiles: [] });
     }
@@ -421,7 +421,7 @@ app.get('/api/audio-files', (req, res) => {
     const audioFiles = [];
 
     for (const file of files) {
-      const filePath = path.join(audioDir, file);
+      const filePath = join(audioDir, file);
       const stats = fs.statSync(filePath);
 
       // Extract timestamp from filename (first part before first dash)
@@ -437,7 +437,7 @@ app.get('/api/audio-files', (req, res) => {
       }
 
       // Determine file type and duration estimate
-      const ext = path.extname(file).toLowerCase();
+      const ext = extname(file).toLowerCase();
       let type = 'upload';
       let duration = 0;
 
