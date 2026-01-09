@@ -1172,7 +1172,8 @@ After using a tool, you'll receive the result and should provide a natural langu
         }
         
         // Use longer timeout for general knowledge questions (no tools)
-        const requestTimeout = (enableTools && needsTools) ? 120000 : 180000; // 120s with tools, 180s without tools
+        // Increased timeout for tool requests with large models (qwen3:30b needs more time with 76 tools)
+        const requestTimeout = (enableTools && needsTools) ? 300000 : 180000; // 300s (5min) with tools, 180s without tools
         const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody, {
           timeout: requestTimeout
         });

@@ -127,8 +127,9 @@ const getPerforceChangelist = async (changelist) => {
 const listPerforceChangelists = async (user = null, limit = 50) => {
   const args = ['-m', limit.toString()];
   if (user) {
-    args.push(`-u ${user}`);
+    args.push('-u', user);  // Fixed: separate arguments
   }
+  args.push('//...');  // Fixed: add depot path
   
   const result = await executeP4Command('changes', args);
   
@@ -210,6 +211,24 @@ const listPerforceFiles = async (path, limit = 100) => {
   return { files, total: lines.length };
 };
 
+// List directories in a path
+const listPerforceDirectories = async (path = '//...') => {
+  const result = await executeP4Command('dirs', [path]);
+  
+  if (result.error) return result;
+  
+  const directories = [];
+  const lines = result.output.split('\n').filter(l => l.trim());
+  
+  for (const line of lines) {
+    if (line.trim()) {
+      directories.push(line.trim());
+    }
+  }
+  
+  return { directories, total: directories.length };
+};
+
 // Get file content
 const getPerforceFileContent = async (filePath, revision = null) => {
   const args = revision ? [`${filePath}#${revision}`] : [filePath];
@@ -276,14 +295,32 @@ const getPerforceClient = async (clientName = null) => {
   
   const info = {};
   const lines = result.output.split('\n');
+  let currentKey = null;
+  let currentValue = [];
   
   for (const line of lines) {
-    const match = line.match(/^(.+?):\s*(.+)$/);
+    // Skip comment lines
+    if (line.trim().startsWith('#')) continue;
+    
+    // Check if this is a key:value line (using tabs or spaces after colon)
+    const match = line.match(/^([A-Za-z]+):\s*(.*)$/);
     if (match) {
-      const key = match[1].trim();
-      const value = match[2].trim();
-      info[key] = value;
+      // Save previous key if exists
+      if (currentKey) {
+        info[currentKey] = currentValue.length > 1 ? currentValue : (currentValue[0] || '');
+      }
+      // Start new key
+      currentKey = match[1].trim();
+      currentValue = match[2].trim() ? [match[2].trim()] : [];
+    } else if (currentKey && line.trim() && !line.startsWith('#')) {
+      // This is a continuation line (like additional View mappings)
+      currentValue.push(line.trim());
     }
+  }
+  
+  // Save last key
+  if (currentKey) {
+    info[currentKey] = currentValue.length > 1 ? currentValue : (currentValue[0] || '');
   }
   
   return info;
@@ -294,6 +331,7 @@ export default {
   listPerforceChangelists,
   getPerforceFileInfo,
   listPerforceFiles,
+  listPerforceDirectories,
   getPerforceFileContent,
   getPerforceFileHistory,
   getPerforceClient,
@@ -302,13 +340,13 @@ export default {
       type: 'function',
       function: {
         name: 'get_perforce_changelist',
-        description: 'Get information about a Perforce changelist',
+        description: 'Get detailed information about a specific Perforce changelist (commit/change), including files changed, description, user, and date.',
         parameters: {
           type: 'object',
           properties: {
             changelist: {
               type: 'string',
-              description: 'Changelist number',
+              description: 'Changelist number (e.g., "12345")',
             },
           },
           required: ['changelist'],
@@ -319,17 +357,17 @@ export default {
       type: 'function',
       function: {
         name: 'list_perforce_changelists',
-        description: 'List recent Perforce changelists',
+        description: 'List recent Perforce changelists (commits/changes). Use this to see recent commits, changes, or submissions by users in Perforce.',
         parameters: {
           type: 'object',
           properties: {
             user: {
               type: 'string',
-              description: 'Filter by user (optional)',
+              description: 'Filter by username (e.g., "jose_vieira", "julien_merceron"). Optional - omit to see all users.',
             },
             limit: {
               type: 'number',
-              description: 'Maximum number of changelists (default 50)',
+              description: 'Maximum number of changelists to return (default 50)',
             },
           },
           required: [],
@@ -357,20 +395,37 @@ export default {
       type: 'function',
       function: {
         name: 'list_perforce_files',
-        description: 'List files in a Perforce directory',
+        description: 'List FILES (not directories) in a specific Perforce directory. Use list_perforce_directories first to explore depot structure, then use this to see files in a specific path.',
         parameters: {
           type: 'object',
           properties: {
             path: {
               type: 'string',
-              description: 'Directory path in depot (e.g., //depot/path/to/dir)',
+              description: 'REQUIRED: Specific directory path (e.g., //Unseen/Main/Src/)',
             },
             limit: {
               type: 'number',
-              description: 'Maximum number of files (default 100)',
+              description: 'Maximum number of files to return (default 100)',
             },
           },
           required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_perforce_directories',
+        description: 'PERFORCE DEPOT EXPLORER: Use this when user asks "show me the depot", "what\'s in the depot", or wants to explore Perforce depot structure. Lists all directories/subdirectories. Call with NO parameters to show all top-level depots (//Unseen/, //Engine/, etc.)',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'OPTIONAL: Specific path pattern (e.g., //Unseen/* for subdirs in Unseen). Leave empty to show ALL depots.',
+            },
+          },
+          required: [],
         },
       },
     },
