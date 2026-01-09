@@ -10,7 +10,7 @@ import { api } from './api/api';
 import { t } from './utils/i18n';
 
 function App() {
-  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, setOllamaStatus, selectedModel, showSettings, fontScaleFactor, selectedLanguage } = useStore();
+  const { panelSizes, setPanelSizes, setChats, setMcpTools, setAvailableModels, setOllamaStatus, selectedModel, showSettings, fontScaleFactor, selectedLanguage, availableModels } = useStore();
   const progressIntervalRef = useRef(null);
   const progressRef = useRef(0);
   const pollModelReady = async (modelName, attempts = 6, delayMs = 3000) => {
@@ -41,89 +41,13 @@ function App() {
         setMcpTools(tools);
         setAvailableModels(models);
 
-        // Check Ollama availability before warmup
+        // Check Ollama availability (no warmup here - will be handled by selectedModel useEffect)
         try {
           await api.getOllamaStatus();
+          // Set idle state - warmup will be triggered when selectedModel is ready
+          setOllamaStatus({ state: 'idle', message: '', messageKey: null, messageParams: {}, progress: 0 });
         } catch (statusErr) {
-          if (progressIntervalRef.current) {
-          clearInterval(progressIntervalRef.current);
-          progressIntervalRef.current = null;
-        }
-        setOllamaStatus({ state: 'error', message: '', messageKey: 'ollama.not.found', messageParams: {}, progress: 0 });
-          return;
-        }
-
-        // Start loading with progress tracking
-        progressRef.current = 0;
-        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = setInterval(() => {
-          progressRef.current = Math.min(progressRef.current + Math.random() * 15, 95); // Cap at 95% until done
-          setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: Math.round(progressRef.current) });
-        }, 200);
-        
-        setOllamaStatus({ state: 'loading', message: '', messageKey: 'ollama.model.loading', messageParams: { model: selectedModel }, progress: 0 });
-        
-        // Add timeout to warmup (60 seconds)
-        const warmupPromise = api.warmupModel(selectedModel);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Warmup timeout - model may still be loading')), 60000)
-        );
-        
-        try {
-          const warmupResult = await Promise.race([warmupPromise, timeoutPromise]);
-          console.log('Warmup result:', warmupResult);
-          
-          // Verify model is actually loaded and get device/memory info (poll to avoid 95% hang)
-          let device = 'CPU';
-          let sizeGB = 0;
-          let memoryType = 'RAM';
-          let modelInfo = null;
-          try {
-            modelInfo = await pollModelReady(selectedModel, 6, 2000);
-            console.log('Polled model info:', modelInfo);
-            if (modelInfo) {
-              device = modelInfo.device || 'CPU';
-              sizeGB = modelInfo.sizeGB || 0;
-              memoryType = modelInfo.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
-              console.log(`Model ${selectedModel} confirmed loaded on ${device}, size: ${sizeGB}GB, memoryType: ${memoryType}`);
-            } else if (warmupResult) {
-              device = warmupResult.device || 'CPU';
-              sizeGB = warmupResult.sizeGB || 0;
-              memoryType = warmupResult.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
-              console.log(`Using warmup result - device: ${device}, sizeGB: ${sizeGB}, memoryType: ${memoryType}`);
-            }
-          } catch (statusError) {
-            console.warn('Could not verify model status:', statusError);
-            if (warmupResult) {
-              device = warmupResult.device || 'CPU';
-              sizeGB = warmupResult.sizeGB || 0;
-              memoryType = warmupResult.memoryType || (device === 'GPU' ? 'VRAM' : 'RAM');
-              console.log(`Fallback to warmup result - device: ${device}, sizeGB: ${sizeGB}, memoryType: ${memoryType}`);
-            }
-          }
-          
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-          
-          const memLabel = sizeGB > 0 ? `${sizeGB}GB${memoryType ? ` ${memoryType}` : ''}` : '';
-          const deviceInfo = sizeGB > 0 ? `${device} - ${memLabel}` : device;
-          
-          if (sizeGB > 0 || modelInfo) {
-            setOllamaStatus({ state: 'ready', message: '', messageKey: 'ollama.model.ready', messageParams: { model: selectedModel, deviceInfo }, progress: 100 });
-          } else {
-            // No confirmation from status; mark as error to avoid hanging at 95%
-            setOllamaStatus({ state: 'error', message: '', messageKey: 'model.not.ready', messageParams: { model: selectedModel }, progress: 0 });
-          }
-        } catch (warmupError) {
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-          const errorMsg = warmupError.response?.data?.error || warmupError.message || 'Warmup failed';
-          console.warn('Warmup failed:', errorMsg);
-          setOllamaStatus({ state: 'error', message: '', messageKey: 'warmup.failed', messageParams: { error: errorMsg }, progress: 0 });
+          setOllamaStatus({ state: 'error', message: '', messageKey: 'ollama.not.found', messageParams: {}, progress: 0 });
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -137,9 +61,13 @@ function App() {
     loadData();
   }, []);
 
-  // Warm up when model changes
+  // Warm up when model changes (only if models are available to prevent race conditions)
   useEffect(() => {
     const warm = async () => {
+      // Only warmup if we have models available (prevents race conditions during app initialization)
+      if (!selectedModel || availableModels.length === 0) {
+        return;
+      }
       try {
         // Start loading with progress tracking
         progressRef.current = 0;
@@ -223,7 +151,7 @@ function App() {
     if (selectedModel) {
       warm();
     }
-  }, [selectedModel]);
+  }, [selectedModel, availableModels]);
 
   const handlePanelResize = (sizes) => {
     setPanelSizes(sizes);

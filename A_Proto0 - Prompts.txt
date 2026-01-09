@@ -1,5 +1,220 @@
 
 
+To summarize things a bit, in this new Web App that we are going to build together, user would select an LLM and a bunch of MCP Tool agents, and then start to work on a variety of tasks powered by AI.
+
+In the list of available LLMs we want to have Ollama models, as well as ones that offer APIs to connect to.
+In the list of MCP Tools, by default we want to have one to ask for what the weather is in a specific city, and one that can add two numbers.
+
+We want to have the Web page split in various sections:
+- a top header where we will have a Mic On / Mic Off switch button, a speaker on / speaker off switch button, a User Settings button opening a User Settings menu, and language selection drop down list.
+- a main page split in 3 vertical sections:
+     the Left vertical section:
+         at the top -> a New Chat button, and bellow this new chat button a list of all chats (with a scrolling bar in case the list is too long).
+         at the bottom -> a scratchpad where I can write text, copy paste text, which content is automatically saved and restored the next use.
+     the central vertical section:
+         this is where the LLM chat is going to happen.
+         make sure it is compatible with multimodal LLMs.
+     the right vertical section:
+         at the top, an AGENT section, where the full list of MCP servers available is displayed (with a scrolling bar in case the list is too long).
+         at the center a MEETING RECORDING section, where I can record a meeting, generate a transcript of it.... but also load any audio file and ask for a transcript.  
+         at the bottom, a section called WINDOW that contains a 3D Graphics display window with a rotating cube.
+The space that each section can be changed by moving the split bars. the state of the split bars must be saved and restored the next use.
+
+What steps would you take to create that Web App?
+
+
+
+
+go through all different phases.
+for transcript, pick a free option.
+as the default LLM being used, pick llama3.2:3b
+
+Also, when ready, launch the server and the web client (don't ever ask me to do it manually)
+avoid http://localhost:5173/, I'm using it for something else
+avoid http://localhost:3001/mcp/tools/jira/projects, I'm using it for something else
+
+
+
+http://localhost:5174/ ---> It is a white page...
+
+
+in the 3D scene, add a fixed light pointing toward the rotating cube
+
+
+call the "AI Workspace" "AI Unseen Workspace" instead
+
+
+the horizontal split should also be adjustable (ie. between chat list and scratchpad, between MCP agentes and Meeting recordings, between meeting recordings and 3D window, between header and main window)
+
+
+make it such I can rename chats
+
+
+GPU is doing nothing....
+I have GPU0 which is integrated graphics...
+... and GPU1 that is RTX / Cuda
+I want to use ollama on GPU with CUDA... I want a real solution
+
+
+it is thinking.... then the whole web app screen turns white :-)
+... if I hit Ctrl+Shift+R, then I get back to the web app.... and if I go back to the chat I see the response !!!! :-)
+we have a bug
+
+
+FIXED
+
+
+Yes. we need proper tool calling support so that any MCP available is considered adequately.
+
+FIXED
+
+
+I am going to ask you to make many many many MCP tools (for Jira, slack, Perforce, Github, Confluence...). Would you put all of them in the same file?
+
+
+I would like you to create all necessary MCP Tools related to read any type of information from Slack, Jira, Github, Perforce, Confluence.
+
+
+I would like you to create all necessary MCP Tools related to read any type of information from Google Workspace applications (gmail, calendar, drive, etc.).
+
+
+
+I would like you to create all necessary MCP Tools related to read any type of information on Discord.
+
+
+
+
+In the list of MCP agents, I don't see your MCP related to questions I would ask about the transcript: display the transcript, summarize the transcript finding words/topics in transcript..
+and - when trying "can you display what is in the transcript file?", I get "Unfortunately, I don't see a transcript file provided. Could you please provide the text or reference to the transcript you'd like me to work with?"
+
+
+
+great, can you commit and push to Github?
+... to https://github.com/orion-productions/A_Proto0
+
+
+
+
+Let's work on the Meeting Recording
+When recording, I want to visualize the spectrogram.
+Once recording is finished, I want to be able to transcript the recording (with a free solution), see the transcript progress, and see when DONE.
+Also, I should be able to select an audio file, and I should be able to trascript it.
+
+
+Let's also use Web Speech for live transcript... please implement it do that - when recording a meeting, on the spectrogram - I can see the subtitles of what is being said.
+
+
+
+
+For Meeting Recording, I asked:
+In the spectrogram display (when not recording) display the LATEST audio file name (that was recorded or loaded), the audio file length, the time of recording, AND the associated transcript file name (when one exists), time of generation, amount of words in it, and such...
+
+When recording, display the spectrogram, as well as the realtime transcript....
+After recording is stopped, I see the new information about the audio file in the spectrogram display location (but transcript file information is marked as not available yet), transcript generation needs to start, and transcript is generated. The information of transcript file in spectrogram location is then updated.
+
+And when prompting about ...
+can you display what is in the transcript file?
+can you summarize the transcript file?
+is there a mention about robots?
+what are the key themes mentioned?
+are there some disagreements?
+how many people are speaking?
+.... then it leverages MCP Tools to get the information!
+
+To make sure all works properly, please make Unit tests to cover all possible cases (to get good coverage) and only ask me to test when you pass all tests with Unit Tests!
+
+
+
+
+For Meeting Recording, I asked:
+In the spectrogram display (when not recording) display the LATEST audio file name (that was recorded or loaded), the audio file length, the time of recording, AND the associated transcript file name (when one exists), time of generation, amount of words in it, and such...
+
+When recording, display the spectrogram, as well as the realtime transcript....
+After recording is stopped, I see the new information about the audio file in the spectrogram display location (but transcript file information is marked as not available yet), transcript generation needs to start, and transcript is generated (show progress bar). The information of transcript file in spectrogram location is then updated.
+Once the Transcript file is ready, display "transcription completed" and bellow "Transcript content:" followed by the full text of the transcript.
+
+
+in the app, I can select the model.... once a model is selected (or the one by default), it should be loaded and activated on the GPU. So one of the first thing the app should be doing is verifying ollama is runing, if not run ollama. if ollama connot be found, display a message in the header of the app "Ollama not found"... when starting display "ollama app starting" and when model loadin "ollama app model is loading" and when ready "ollama model X is ready".
+can you make sure this is the behavior of the app?
+
+
+
+
+in the list of Chats, when the mouse hoovers over a saved chat, the full title of the chat should be displayed.
+
+for the horizontal and vertical separations, save user modifications on their placement, so that next time it is placed where the user left them.
+ 
+in the list of MCP Tools in the right column, reduce the size of the title and subttile, and put them on the same line, so that we can see more MCP Tools.
+
+
+
+
+
+for the MCP Tools, let's make sure the title is are completely written as it can be... if space is lacking subtitle will be partially written (but not the title unless title does not even fit).
+and when mouse hoosers over the MCP Tool,  the full title and subtitle of the MCP Tool should be displayed.
+
+for the meeting recording section: it takes a lot of space.
+let's make the record button smaller (reduce horizontal size). Next to it on the right, we keep the loading button. And next to the loading button on its right, I want a new button that will open up a calendar view.... and within this calendar view (weekly) I want to see audio files positioned based on the file creation time (and the space it takes on the calendar should be based on the length of the audio file)... user can select an audio file from calendar.
+Whether the user selected an audio file from calendar, or from loading menu, or just did a recording, we will display the information about this audio file bellow (as it is currently done: spectrogram while recording, or file information display if post-recording / post-loading / post-selection). That said, we will put audio file information and transcript file information side by side (as opposed to transcript information bellow audio file information) in that spectrogram / information window... if it does not fit, no problem, when mouse hoovering over it, display the full information.
+And on the right of this information / spectrogram zone, we will have two buttons:
+- a Transcript button (this button will trigger transcription). Live transcript should be automatic, but audio file Transcript should not be triggered automatically, it should be triggered by this button. When button is pushed, it should change color while transcript is in progress and progress status should be displayed on the button. Once transcript is finished, in the information window, the transcript information should become available.
+- bellow the transcript button a transcript loading button.... once loaded,  in the information window, the transcript information should become available.
+
+when using MCP tools related to the transcripts, I should be able to name a transcript by its file name, or referring to the one currently loaded by just saying "this transcript" or "current transcript"....
+If not transcript is loaded/available, the LLM return should ask for the user to load a transcript or generate a transcript.
+
+
+
+
+
+
+If I load an audio file, transcription starts right away... I said NO to this.
+The user has to push the transcript button, the transcript button then changes color - and it rfemains like that while transcription is in progress - and progress status is displayed on the button.... when transcription is done, button goes back to previous color, and you can do transcription again.
+
+For the spectrogram / information display zone: when information display, just keep these 2 fields:
+Audio File name:
+Transcript File Name:
+...but when hoovering over the display zone (not when displaying spectrogram but when displaying information), display all fields information:
+Audio File name:
+Audio File Size:
+Duration:
+Recorded at:
+Transcript File Name:
+Transcript File size:
+Word Count:
+Transcribed at:
+
+
+
+Do not save transcripts in a database... change the approach so that each transcript file is saved in a separate file with a good naming convention (same name as the audio file so we can find the corresponding audio file easily and vice versa)...
+Make that change now.
+
+
+
+you have to remember 2 specifications, write there somwhere deep inside your context:
+- NEVER commit ands push unless I ask
+- ALWAYS restart localhost servers for me
+
+
+I asked you to remember 2 specifications, and to write these somewhere deep inside your context:
+- NEVER commit ands push unless I ask
+- ALWAYS restart localhost servers for me
+
+... add a 3rd one: ALWAYS make Unit Tests for new parts of your code, and ALWAYS update Unit Tests when you update the code, and ALWAYS test before telling me something is ready.
+
+The reason for this 3rd rule is that I do want to limit the back and forth, and - sorry to ne be blunt - but your code hardly ever works, so let us be more careful and increase our changes of success ! You will see, this will help you tremendously making code that actually works!
+
+
+what are 3 rules I asked you to remember?
+
+NEVER commit and push unless explicitly asked — only commit/push when you explicitly request it.
+ALWAYS restart localhost servers automatically after code changes — restart servers after any code modifications.
+ALWAYS make Unit Tests for new code, ALWAYS update Unit Tests when updating code, and ALWAYS test before saying something is ready — write tests for new code, update tests when code changes, and run tests before reporting completion.
+I follow these in my workflow.
+
+
+
+
 
 NEW LAPTOP
 
@@ -28,4 +243,7 @@ User should be able to resize the Settings window by grabbing a border. User sho
 About the calendar.... when pushing the calendar button, I would like to see a calendar pop up. On that calendar, I would see positioned the audio files (at the right time, on the right day, with the right length), I can select one audio file, or close the window.
 If I select an audio file, and if there is a corresponding transcript file, then information for both are displayed. If transcript file is not available, then I can transcribe it.
 
+
+
+1 2 3 4 5 6 7 8 9 0
 

@@ -18,10 +18,15 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
           if (response.ok) {
             const data = await response.json();
             const transcriptMap = new Map();
-            data.transcripts.forEach(transcript => {
+            // Handle both array format and object format with transcripts property
+            const transcripts = Array.isArray(data) ? data : (data.transcripts || []);
+            transcripts.forEach(transcript => {
               // Extract base name from transcript file name
-              const baseName = transcript.file_name.replace('.transcript.json', '');
-              transcriptMap.set(baseName, transcript);
+              const baseName = transcript.file_name ? transcript.file_name.replace('.transcript.json', '') :
+                           transcript.audio_file_name ? transcript.audio_file_name.replace('.transcript.json', '') : '';
+              if (baseName) {
+                transcriptMap.set(baseName, transcript);
+              }
             });
             setTranscriptsMap(transcriptMap);
           }
@@ -125,7 +130,21 @@ const CalendarModal = ({ isOpen, onClose, audioHistory, onSelectAudio, onTranscr
 
   // Handle audio file selection
   const handleAudioSelect = (audioFile) => {
-    onSelectAudio(audioFile);
+    // Extract base name from audio file (remove extension)
+    const baseName = audioFile.fileName.replace(/\.[^/.]+$/, '');
+
+    // Check if a transcript exists for this audio file
+    const transcriptInfo = transcriptsMap.get(baseName);
+
+    // Create enhanced audio file info with transcript information
+    const enhancedAudioFile = {
+      ...audioFile,
+      // Include transcript info if it exists, otherwise leave it undefined
+      transcriptFileName: transcriptInfo ? transcriptInfo.file_name : null,
+      transcriptInfo: transcriptInfo || null
+    };
+
+    onSelectAudio(enhancedAudioFile);
     onClose();
   };
 

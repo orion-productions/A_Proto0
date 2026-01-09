@@ -16,12 +16,25 @@ function LeftPanel() {
     setCurrentChatId,
     setScratchpadContent,
     setMessages,
-    setLeftPanelSizes
+    setLeftPanelSizes,
+    loadScratchpadContent,
+    recoverScratchpadFromBackup
   } = useStore();
   
   const t = useTranslation(selectedLanguage);
 
+  // Load scratchpad content on mount and sync with store
+  useEffect(() => {
+    loadScratchpadContent();
+  }, [loadScratchpadContent]);
+
+  // Sync local state with store state
+  useEffect(() => {
+    setLocalScratchpadContent(scratchpadContent);
+  }, [scratchpadContent]);
+
   const [editingChatId, setEditingChatId] = useState(null);
+  const [localScratchpadContent, setLocalScratchpadContent] = useState('');
   const [editingTitle, setEditingTitle] = useState('');
 
   const handleNewChat = async () => {
@@ -183,10 +196,48 @@ function LeftPanel() {
 
         <Panel defaultSize={leftPanelSizes[1]} minSize={15}>
           <div className="h-full flex flex-col">
-            <div className="p-2 bg-gray-750 font-semibold text-sm border-t border-gray-700">{t('scratchpad')}</div>
+            <div className="p-2 bg-gray-750 font-semibold text-sm border-t border-gray-700 flex justify-between items-center">
+              <span>{t('scratchpad')}</span>
+              {(!localScratchpadContent || localScratchpadContent.trim() === '') && (
+                <button
+                  onClick={async () => {
+                    try {
+                      // First try to reload from file
+                      await loadScratchpadContent();
+                      // If still empty, try backup recovery
+                      if (!scratchpadContent || scratchpadContent.trim() === '') {
+                        const recovered = recoverScratchpadFromBackup();
+                        if (recovered) {
+                          alert('✅ Scratchpad content recovered from backup!');
+                        } else {
+                          alert('❌ No content found in file or backup.');
+                        }
+                      } else {
+                        alert('✅ Scratchpad content reloaded from file!');
+                      }
+                    } catch (error) {
+                      console.error('Recovery failed:', error);
+                      alert('❌ Recovery failed. Check console for details.');
+                    }
+                  }}
+                  className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition-colors"
+                  title="Recover scratchpad content from backup"
+                >
+                  🔄 Recover
+                </button>
+              )}
+            </div>
             <textarea
-              value={scratchpadContent}
-              onChange={(e) => setScratchpadContent(e.target.value)}
+              value={localScratchpadContent}
+              onChange={(e) => {
+                const newContent = e.target.value;
+                setLocalScratchpadContent(newContent);
+                // Debounce the save operation
+                clearTimeout(window.scratchpadSaveTimeout);
+                window.scratchpadSaveTimeout = setTimeout(() => {
+                  setScratchpadContent(newContent);
+                }, 500); // Save after 500ms of no typing
+              }}
               placeholder={t('scratchpad.placeholder')}
               className="flex-1 bg-gray-900 text-white p-3 resize-none focus:outline-none border-none"
             />

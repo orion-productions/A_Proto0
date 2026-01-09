@@ -20,6 +20,20 @@ function RecordingSection() {
   const [realtimeTranscript, setRealtimeTranscript] = useState('');
   const [audioFileInfo, setAudioFileInfo] = useState(null); // Store audio file metadata
   const [savedTranscriptInfo, setSavedTranscriptInfo] = useState(null); // Store saved transcript metadata
+
+  // Enhanced function to handle audio file selection with transcript info
+  const handleAudioFileSelect = (audioFileData) => {
+    // Set audio file info
+    const { transcriptFileName, transcriptInfo, ...audioInfo } = audioFileData;
+    setAudioFileInfo(audioInfo);
+
+    // Set or clear transcript info based on availability
+    if (transcriptInfo) {
+      setSavedTranscriptInfo(transcriptInfo);
+    } else {
+      setSavedTranscriptInfo(null);
+    }
+  };
   const [audioHistory, setAudioHistory] = useState([]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const audioBlobRef = useRef(null);
@@ -557,14 +571,48 @@ ${t('transcription')}: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptI
   };
 
   const handleManualTranscribe = async () => {
-    if (!audioBlobRef.current) {
+    if (!audioBlobRef.current && !audioFileInfo) {
       alert(t('no.audio.file.available'));
       return;
     }
+
     setTranscriptionStatus('processing');
     setTranscript('');
     setSavedTranscriptInfo(null);
-    await transcribeAudio(audioBlobRef.current);
+
+    // If we have a local audio blob (from recording), use it directly
+    if (audioBlobRef.current) {
+      await transcribeAudio(audioBlobRef.current);
+      return;
+    }
+
+    // If we have a calendar-selected file, download it first
+    if (audioFileInfo && audioFileInfo.fileName) {
+      try {
+        console.log('🎵 Downloading audio file for transcription:', audioFileInfo.fileName);
+
+        // Download the audio file from the server
+        const response = await fetch(`/api/audio/${encodeURIComponent(audioFileInfo.fileName)}`);
+        if (!response.ok) {
+          throw new Error(`Failed to download audio file: ${response.status}`);
+        }
+
+        const audioBlob = await response.blob();
+        console.log('✅ Audio file downloaded, size:', audioBlob.size);
+
+        // Transcribe the downloaded file
+        await transcribeAudio(audioBlob);
+
+      } catch (error) {
+        console.error('❌ Error downloading audio file:', error);
+        alert(`Failed to download audio file for transcription: ${error.message}`);
+        setTranscriptionStatus('error');
+      }
+      return;
+    }
+
+    // Fallback error
+    alert(t('no.audio.file.available'));
   };
 
   const handleLoadTranscriptFile = async (e) => {
@@ -662,7 +710,7 @@ ${t('transcription')}: ${savedTranscriptInfo.savedAt ? new Date(savedTranscriptI
           isOpen={showCalendarModal}
           onClose={() => setShowCalendarModal(false)}
           audioHistory={audioHistory}
-          onSelectAudio={setAudioFileInfo}
+          onSelectAudio={handleAudioFileSelect}
           onTranscribe={handleManualTranscribe}
         />
 

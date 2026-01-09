@@ -460,6 +460,39 @@ app.post('/api/scratchpad', (req, res) => {
   }
 });
 
+// Serve audio files for download/transcription
+app.get('/api/audio/:filename', (req, res) => {
+  const fileName = req.params.filename;
+  const filePath = join(AUDIO_DIR, fileName);
+
+  console.log('🎵 Audio download request:', { fileName, AUDIO_DIR, filePath, exists: fs.existsSync(filePath) });
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    console.log('❌ Audio file not found:', filePath);
+    return res.status(404).json({ error: 'Audio file not found' });
+  }
+
+  // Set appropriate headers for audio file
+  const ext = extname(fileName).toLowerCase();
+  const mimeType = ext === '.webm' ? 'audio/webm' :
+                   ext === '.mp3' ? 'audio/mpeg' :
+                   ext === '.wav' ? 'audio/wav' :
+                   'application/octet-stream';
+
+  res.setHeader('Content-Type', mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+  // Stream the file
+  const fileStream = fs.createReadStream(filePath);
+  fileStream.pipe(res);
+
+  fileStream.on('error', (error) => {
+    console.error('Error streaming audio file:', error);
+    res.status(500).json({ error: 'Error reading audio file' });
+  });
+});
+
 // Get list of audio files with metadata
 app.get('/api/audio-files', (req, res) => {
   try {
@@ -822,7 +855,7 @@ app.post('/api/llm/chat', async (req, res) => {
                     model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
                     messages: summaryPrompt,
                     stream: false
-                  }, { timeout: 20000 });
+                  }, { timeout: 120000 }); // Increased from 20s to 120s for long transcripts
                   const summary = summaryResp.data?.message?.content?.trim();
                   content = summary || `Here is ${title} (summary unavailable):\n\n${body}`;
                 } catch (err) {

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { api } from '../api/api';
 
 const useStore = create((set, get) => ({
   // UI State
@@ -18,8 +19,8 @@ const useStore = create((set, get) => ({
   messages: [],
   isLoading: false,
   
-  // Scratchpad
-  scratchpadContent: localStorage.getItem('scratchpad') || '',
+  // Scratchpad (file-based storage via API)
+  scratchpadContent: '',
   
   // LLM state
   selectedModel: localStorage.getItem('selectedModel') || 'qwen2.5:1.5b',
@@ -71,9 +72,50 @@ const useStore = create((set, get) => ({
   setMessages: (messages) => set({ messages }),
   setIsLoading: (loading) => set({ isLoading: loading }),
   
-  setScratchpadContent: (content) => {
-    localStorage.setItem('scratchpad', content);
-    set({ scratchpadContent: content });
+  setScratchpadContent: async (content) => {
+    console.log('💾 Scratchpad saving to file:', content ? `${content.length} characters` : 'empty');
+    try {
+      await api.saveScratchpad(content);
+      // Also save a backup with timestamp for recovery
+      localStorage.setItem('scratchpad_backup', content);
+      localStorage.setItem('scratchpad_backup_timestamp', new Date().toISOString());
+      set({ scratchpadContent: content });
+      console.log('✅ Scratchpad saved successfully');
+    } catch (error) {
+      console.error('❌ Failed to save scratchpad:', error);
+      // Fallback to localStorage if API fails
+      localStorage.setItem('scratchpad', content);
+      set({ scratchpadContent: content });
+    }
+  },
+
+  // Load scratchpad from file
+  loadScratchpadContent: async () => {
+    try {
+      console.log('🔍 Loading scratchpad from file...');
+      const content = await api.getScratchpad();
+      console.log('🔍 Scratchpad loaded from file:', content ? `${content.length} characters` : 'empty');
+      set({ scratchpadContent: content });
+      return content;
+    } catch (error) {
+      console.error('❌ Failed to load scratchpad from file:', error);
+      // Fallback to backup recovery
+      return get().recoverScratchpadFromBackup();
+    }
+  },
+
+  // Recover scratchpad from backup
+  recoverScratchpadFromBackup: () => {
+    const backup = localStorage.getItem('scratchpad_backup');
+    const timestamp = localStorage.getItem('scratchpad_backup_timestamp');
+    if (backup) {
+      console.log('🔄 Recovering scratchpad from backup (created:', timestamp, ')');
+      // Save to file as well
+      api.saveScratchpad(backup).catch(err => console.warn('Failed to save recovered content to file:', err));
+      set({ scratchpadContent: backup });
+      return true;
+    }
+    return false;
   },
   
   setSelectedModel: (model) => {

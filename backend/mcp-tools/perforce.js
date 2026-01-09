@@ -42,10 +42,11 @@ try {
 const buildP4Command = (command, args = []) => {
   let cmd = 'p4';
   
-  if (P4_PORT) cmd += ` -p ${P4_PORT}`;
-  if (P4_USER) cmd += ` -u ${P4_USER}`;
-  if (P4_CLIENT) cmd += ` -c ${P4_CLIENT}`;
-  if (P4_PASSWD) cmd += ` -P ${P4_PASSWD}`;
+  // Quote all credential parameters to handle special characters (like | & ; etc.)
+  if (P4_PORT) cmd += ` -p "${P4_PORT}"`;
+  if (P4_USER) cmd += ` -u "${P4_USER}"`;
+  if (P4_CLIENT) cmd += ` -c "${P4_CLIENT}"`;
+  if (P4_PASSWD) cmd += ` -P "${P4_PASSWD}"`;
   
   cmd += ` ${command}`;
   if (args.length > 0) {

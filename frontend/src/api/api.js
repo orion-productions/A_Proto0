@@ -178,6 +178,16 @@ export const api = {
       });
 
       return response.data;
+    },
+
+    // Scratchpad operations
+    getScratchpad: async () => {
+      const response = await axios.get(`${API_BASE_URL}/scratchpad`);
+      return response.data.content || '';
+    },
+
+    saveScratchpad: async (content) => {
+      const response = await axios.post(`${API_BASE_URL}/scratchpad`, { content });
+      return response.data;
     }
   };
-
