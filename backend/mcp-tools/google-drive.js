@@ -1,8 +1,37 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Google Drive API configuration
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
-const GOOGLE_ACCESS_TOKEN = process.env.GOOGLE_ACCESS_TOKEN || '';
+
+// Load Google credentials from file
+let GOOGLE_ACCESS_TOKEN = '';
+
+try {
+  const credentialsPath = path.join(__dirname, '../credentials/google.env');
+  if (fs.existsSync(credentialsPath)) {
+    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+    const lines = credentialsContent.split('\n');
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        const value = valueParts.join('=').trim();
+        if (key === 'GOOGLE_ACCESS_TOKEN') {
+          GOOGLE_ACCESS_TOKEN = value;
+        }
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Warning: Could not load Google credentials:', error.message);
+}
 
 // Helper function for Drive API calls
 const driveApiCall = async (endpoint, method = 'GET', data = null) => {

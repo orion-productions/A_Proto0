@@ -78,6 +78,31 @@ function logWeatherDebug(payload) {
   }
 }
 
+// Scratchpad file operations
+const SCRATCHPAD_FILE = join(process.cwd(), '..', 'scratchpad.txt');
+
+function readScratchpadFile() {
+  try {
+    if (fs.existsSync(SCRATCHPAD_FILE)) {
+      return fs.readFileSync(SCRATCHPAD_FILE, 'utf8');
+    }
+    return '';
+  } catch (error) {
+    console.error('Error reading scratchpad file:', error);
+    return '';
+  }
+}
+
+function writeScratchpadFile(content) {
+  try {
+    fs.writeFileSync(SCRATCHPAD_FILE, content, 'utf8');
+    return true;
+  } catch (error) {
+    console.error('Error writing scratchpad file:', error);
+    return false;
+  }
+}
+
 // MCP Tools are now imported from ./mcp-tools/index.js
 // See backend/mcp-tools/ directory for individual tool implementations
 
@@ -407,6 +432,32 @@ app.delete('/api/transcripts/:id', (req, res) => {
     return res.status(404).json({ error: result.error });
   }
   res.json({ success: true });
+});
+
+// Scratchpad endpoints
+app.get('/api/scratchpad', (req, res) => {
+  try {
+    const content = readScratchpadFile();
+    res.json({ content });
+  } catch (error) {
+    console.error('Error reading scratchpad:', error);
+    res.status(500).json({ error: 'Failed to read scratchpad' });
+  }
+});
+
+app.post('/api/scratchpad', (req, res) => {
+  try {
+    const { content } = req.body;
+    const success = writeScratchpadFile(content || '');
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to write scratchpad' });
+    }
+  } catch (error) {
+    console.error('Error writing scratchpad:', error);
+    res.status(500).json({ error: 'Failed to write scratchpad' });
+  }
 });
 
 // Get list of audio files with metadata
@@ -1088,7 +1139,7 @@ After using a tool, you'll receive the result and should provide a natural langu
         }
         
         // Use longer timeout for general knowledge questions (no tools)
-        const requestTimeout = (enableTools && needsTools) ? 60000 : 180000; // 60s with tools, 180s without tools
+        const requestTimeout = (enableTools && needsTools) ? 120000 : 180000; // 120s with tools, 180s without tools
         const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody, {
           timeout: requestTimeout
         });
@@ -1349,6 +1400,7 @@ app.post('/api/llm/stop', async (req, res) => {
 app.post('/api/llm/warmup', async (req, res) => {
   const { model } = req.body;
   const targetModel = model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b';
+  console.log(`🔥 WARMUP REQUEST: received model="${model}", using targetModel="${targetModel}"`);
   const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
   try {
@@ -1618,7 +1670,6 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
 
     const audioPath = req.file.path;
     console.log('🎤 Transcribing audio with Whisper:', audioPath);
-    console.log('Full path:', join(process.cwd(), audioPath));
 
     // Check if Python and Whisper are available
     try {
@@ -1633,9 +1684,9 @@ app.post('/api/transcribe-whisper', upload.single('audio'), async (req, res) => 
     // Run Whisper transcription
     try {
       // Use absolute path and keep audio file (no deletion)
-      // If multer already gave us an absolute path, use it; otherwise resolve relative to CWD
-      const absolutePath = isAbsolute(audioPath) ? audioPath : join(process.cwd(), audioPath);
-      const scriptPath = join(process.cwd(), 'backend', 'whisper_service.py');
+      // Multer gives us absolute paths, so use as-is
+      const absolutePath = audioPath;
+      const scriptPath = join(__dirname, 'whisper_service.py');
       
       console.log('Running Whisper:', { scriptPath, audioPath: absolutePath, model: WHISPER_MODEL, language: WHISPER_LANGUAGE });
       

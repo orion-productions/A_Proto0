@@ -1,9 +1,38 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Jira API configuration
-const JIRA_BASE_URL = process.env.JIRA_BASE_URL || '';
-const JIRA_EMAIL = process.env.JIRA_EMAIL || '';
-const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || '';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load JIRA credentials from file
+let JIRA_BASE_URL = '';
+let JIRA_EMAIL = '';
+let JIRA_API_TOKEN = '';
+
+try {
+  const credentialsPath = path.join(__dirname, '../credentials/jira.env');
+  if (fs.existsSync(credentialsPath)) {
+    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+    const lines = credentialsContent.split('\n');
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        const value = valueParts.join('=').trim();
+        switch (key) {
+          case 'JIRA_BASE_URL': JIRA_BASE_URL = value; break;
+          case 'JIRA_EMAIL': JIRA_EMAIL = value; break;
+          case 'JIRA_API_TOKEN': JIRA_API_TOKEN = value; break;
+        }
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Warning: Could not load JIRA credentials:', error.message);
+}
 
 // Helper function for Jira API calls
 const jiraApiCall = async (endpoint, method = 'GET', data = null) => {

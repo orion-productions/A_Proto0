@@ -1,8 +1,37 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Slack API configuration
 const SLACK_BASE_URL = 'https://slack.com/api';
-const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN || '';
+
+// Load Slack credentials from file
+let SLACK_TOKEN = '';
+
+try {
+  const credentialsPath = path.join(__dirname, '../credentials/slack.env');
+  if (fs.existsSync(credentialsPath)) {
+    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+    const lines = credentialsContent.split('\n');
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        const value = valueParts.join('=').trim();
+        if (key === 'SLACK_BOT_TOKEN') {
+          SLACK_TOKEN = value;
+        }
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Warning: Could not load Slack credentials:', error.message);
+}
 
 // Helper function for Slack API calls
 const slackApiCall = async (method, params = {}) => {

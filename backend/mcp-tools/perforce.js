@@ -1,13 +1,42 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Perforce configuration
-const P4_PORT = process.env.P4PORT || '';
-const P4_USER = process.env.P4USER || '';
-const P4_CLIENT = process.env.P4CLIENT || '';
-const P4_PASSWD = process.env.P4PASSWD || '';
+// Load Perforce credentials from file
+let P4_PORT = '';
+let P4_USER = '';
+let P4_CLIENT = '';
+let P4_PASSWD = '';
+
+try {
+  const credentialsPath = path.join(__dirname, '../credentials/perforce.env');
+  if (fs.existsSync(credentialsPath)) {
+    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+    const lines = credentialsContent.split('\n');
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        const value = valueParts.join('=').trim();
+        switch (key) {
+          case 'P4PORT': P4_PORT = value; break;
+          case 'P4USER': P4_USER = value; break;
+          case 'P4CLIENT': P4_CLIENT = value; break;
+          case 'P4PASSWD': P4_PASSWD = value; break;
+        }
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Warning: Could not load Perforce credentials:', error.message);
+}
 
 // Helper function to build P4 command
 const buildP4Command = (command, args = []) => {
