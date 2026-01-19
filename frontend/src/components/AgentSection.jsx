@@ -3,12 +3,10 @@ import { Bot, Check } from 'lucide-react';
 import useStore from '../store/useStore';
 import { useTranslation, translateToolDescription } from '../utils/i18n';
 
-function AgentSection() {
+// Memoize to prevent unnecessary re-renders
+const AgentSection = React.memo(() => {
   const { mcpTools, selectedTools, activeTools, toggleTool, selectedLanguage } = useStore();
   const t = useTranslation(selectedLanguage);
-  
-  // Debug logging
-  console.log('AgentSection render - activeTools:', activeTools);
 
   return (
     <div className="h-full flex flex-col">
@@ -58,7 +56,9 @@ function AgentSection() {
       </div>
     </div>
   );
-}
+});
+
+AgentSection.displayName = 'AgentSection';
 
 export default AgentSection;
 

@@ -3,7 +3,8 @@ import { Send, Image as ImageIcon, Loader2 } from 'lucide-react';
 import useStore from '../store/useStore';
 import { api } from '../api/api';
 import { useTranslation } from '../utils/i18n';
-import { getVoiceForLanguage, waitForVoices } from '../utils/voiceSelection';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 function CenterPanel() {
   const {
@@ -26,40 +27,105 @@ function CenterPanel() {
   const [selectedImage, setSelectedImage] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const recognitionRef = useRef(null);
+  const sendMessageRef = useRef(null);
+  const inputRef = useRef(''); // Track latest input value
+
+  // Voice control hooks
+  const speechRecognition = useSpeechRecognition();
+  const textToSpeech = useTextToSpeech();
+
+  // Keep inputRef in sync with input state
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Initialize speech recognition
+  // Update TTS gender preference when it changes in settings
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
+    const genderMapping = {
+      'feminine': 'female',
+      'masculine': 'male'
+    };
+    textToSpeech.setPreferredGender(genderMapping[voiceGender] || 'female');
+  }, [voiceGender, textToSpeech]);
 
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(prev => prev + ' ' + transcript);
-      };
-    }
-  }, []);
+  // Track if we've already started listening to prevent restart loops
+  const isListeningRef = useRef(false);
 
-  // Handle voice input
+  // Handle microphone enable/disable
   useEffect(() => {
-    if (micEnabled && recognitionRef.current) {
-      recognitionRef.current.start();
-    } else if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Already stopped
+    if (!currentChatId) {
+      // If no chat selected, stop listening
+      if (isListeningRef.current) {
+        console.log('🔇 No chat selected, stopping voice recognition...');
+        speechRecognition.stopListening();
+        isListeningRef.current = false;
       }
+      return;
     }
-  }, [micEnabled]);
+    
+    if (micEnabled && speechRecognition.isSupported) {
+      // Only start if not already listening
+      if (!isListeningRef.current) {
+        console.log('🎤 Starting voice recognition...');
+        
+        // Callback for when silence is detected (2 seconds)
+        const onSilenceDetected = () => {
+          console.log('═══════════════════════════════════════');
+          console.log('🔇 SILENCE CALLBACK TRIGGERED (2 seconds of silence)');
+          console.log('📝 Input state (inputRef):', inputRef.current);
+          console.log('📝 sendMessageRef exists?', !!sendMessageRef.current);
+          
+          // Check if we have text to send
+          const textToSend = inputRef.current.trim();
+          
+          if (textToSend) {
+            console.log('✅ AUTO-SENDING MESSAGE:', textToSend);
+            console.log('═══════════════════════════════════════');
+            // Use the ref to call the send function
+            if (sendMessageRef.current) {
+              sendMessageRef.current();
+            } else {
+              console.error('❌ ERROR: sendMessageRef.current is null!');
+            }
+          } else {
+            console.log('⚠️ NO TEXT TO SEND - input is empty');
+            console.log('═══════════════════════════════════════');
+          }
+        };
+        
+        speechRecognition.startListening(onSilenceDetected);
+        isListeningRef.current = true;
+      }
+    } else if (!micEnabled && isListeningRef.current) {
+      console.log('🔇 Mic disabled, stopping voice recognition...');
+      speechRecognition.stopListening();
+      isListeningRef.current = false;
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (isListeningRef.current) {
+        speechRecognition.stopListening();
+        isListeningRef.current = false;
+      }
+    };
+  }, [micEnabled, currentChatId]); // Removed speechRecognition from dependencies
+
+  // Update input with speech recognition transcript (real-time)
+  useEffect(() => {
+    console.log('📝 Transcript changed:', speechRecognition.fullTranscript);
+    if (speechRecognition.fullTranscript) {
+      console.log('✏️ Updating input with:', speechRecognition.fullTranscript);
+      setInput(speechRecognition.fullTranscript);
+    } else {
+      console.log('⚠️ Transcript is empty, not updating input');
+    }
+  }, [speechRecognition.fullTranscript]);
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
@@ -72,43 +138,16 @@ function CenterPanel() {
     }
   };
 
-  const speakText = async (text) => {
-    if (speakerEnabled && 'speechSynthesis' in window) {
-      // Wait for voices to be loaded
-      await waitForVoices();
-      
-      // Get the appropriate voice for the current language and gender preference
-      const voice = getVoiceForLanguage(selectedLanguage, voiceGender);
-      
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      // Set voice if found
-      if (voice) {
-        utterance.voice = voice;
-      }
-      
-      // Set language to match selected language
-      utterance.lang = selectedLanguage === 'zh' ? 'zh-CN' : 
-                      selectedLanguage === 'ja' ? 'ja-JP' :
-                      selectedLanguage === 'pt' ? 'pt-BR' :
-                      selectedLanguage === 'es' ? 'es-ES' :
-                      selectedLanguage === 'fr' ? 'fr-FR' :
-                      selectedLanguage === 'de' ? 'de-DE' :
-                      selectedLanguage === 'it' ? 'it-IT' :
-                      'en-US';
-      
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
   const handleSendMessage = async () => {
     if (!input.trim() || !currentChatId || isLoading) return;
 
     const userMessage = input.trim();
     const imageData = selectedImage;
     
+    // Clear input and voice transcript
     setInput('');
     setSelectedImage(null);
+    speechRecognition.resetTranscript();
     setIsLoading(true);
 
     try {
@@ -292,7 +331,10 @@ function CenterPanel() {
       );
 
       // Speak response if speaker is enabled
-      speakText(assistantResponse);
+      if (speakerEnabled && textToSpeech.isSupported) {
+        console.log('🔊 Speaking assistant response...');
+        textToSpeech.speak(assistantResponse);
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -303,6 +345,25 @@ function CenterPanel() {
       setIsLoading(false);
     }
   };
+
+  // Update the ref whenever handleSendMessage changes
+  useEffect(() => {
+    sendMessageRef.current = handleSendMessage;
+  }, [handleSendMessage]);
+
+  // Safety timeout: reset loading state if stuck for more than 15 minutes
+  useEffect(() => {
+    if (isLoading) {
+      const timeoutId = setTimeout(() => {
+        console.warn('⚠️ Loading state stuck - auto-resetting after 15 minutes');
+        setIsLoading(false);
+        const { clearAllActiveTools } = useStore.getState();
+        clearAllActiveTools();
+      }, 900000); // 15 minutes
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isLoading, setIsLoading]);
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -352,6 +413,12 @@ function CenterPanel() {
 
           {/* Input Area */}
           <div className="border-t border-gray-700 p-4">
+            {textToSpeech.isSpeaking && (
+              <div className="mb-2 flex items-center gap-2 text-sm text-blue-400 animate-pulse">
+                <span className="text-lg">🔊</span>
+                <span>Speaking...</span>
+              </div>
+            )}
             {selectedImage && (
               <div className="mb-2 relative inline-block">
                 <img src={selectedImage} alt="Selected" className="h-20 rounded" />
@@ -378,14 +445,30 @@ function CenterPanel() {
               >
                 <ImageIcon size={20} />
               </button>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={t('type.message')}
-                rows="1"
-                className="flex-1 bg-gray-800 text-white p-3 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="flex-1 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder={micEnabled && speechRecognition.isListening ? '🎤 Listening...' : t('type.message')}
+                  rows="1"
+                  className={`w-full bg-gray-800 text-white p-3 rounded-lg resize-none focus:outline-none focus:ring-2 ${
+                    micEnabled && speechRecognition.isListening 
+                      ? 'ring-2 ring-green-500 focus:ring-green-500' 
+                      : 'focus:ring-blue-500'
+                  }`}
+                />
+                {micEnabled && speechRecognition.isListening && (
+                  <div className="absolute bottom-1 right-2 text-xs text-green-400 animate-pulse">
+                    🎤 {speechRecognition.detectedLanguage}
+                  </div>
+                )}
+                {!speechRecognition.isSupported && micEnabled && (
+                  <div className="absolute bottom-1 right-2 text-xs text-red-400">
+                    ⚠️ Speech recognition not supported
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleSendMessage}
                 disabled={!input.trim() || isLoading}

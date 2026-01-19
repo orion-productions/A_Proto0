@@ -592,8 +592,8 @@ app.post('/api/llm/chat', async (req, res) => {
       const lastUserMessageRaw = messages[messages.length - 1]?.content || '';
       const lastUserMessage = lastUserMessageRaw?.toLowerCase() || '';
       
-      // Tool detection patterns
-      const needsWeatherTool = /weather|temperature|forecast|climat|météo/i.test(lastUserMessage);
+      // Tool detection patterns (multilingual support)
+      const needsWeatherTool = /weather|temperature|forecast|climat|météo|temps|fait-il|tiempo|hace|wetter|wie ist|天気|てんき|tiānqì|天气/i.test(lastUserMessage);
       const needsAddTool = /add|sum|plus|\+|calculate/i.test(lastUserMessage);
       const needsMathTool = /(\d\s*[\+\-\*\/\^]\s*\d)|\b(sin|cos|tan|asin|acos|atan|exp|log|ln|sqrt|abs|min|max)\s*\(|\bpi\b|π|log\(/i.test(lastUserMessageRaw);
       const needsJiraTool = /jira|issue|project|ticket|bug|story|epic/i.test(lastUserMessage);
@@ -1121,8 +1121,31 @@ IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
 - ONLY use get_transcript when you have a specific transcriptId from get_transcripts
 - DO NOT automatically check transcripts for general knowledge questions - only use transcript tools when explicitly asked` : '';
 
-          const toolInstructions = `You are a helpful assistant with access to these tools:
+          const perforceRules = needsPerforceTool ? `
+
+CRITICAL RULES FOR PERFORCE QUERIES:
+- When user asks about changelists, changes, commits, or Perforce data, you MUST use list_perforce_changelists
+- NEVER generate changelist data from memory or training data - ALL Perforce data MUST come from tool calls
+- If user asks for "10 most recent changelists", use list_perforce_changelists with limit=10
+- If user specifies a username (e.g., "from Jose Vieira"), use the user parameter
+- Example: "list changelists from jose_vieira" → [TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 50}]
+- Example: "10 most recent changelists from john_doe" → [TOOL_CALL: list_perforce_changelists {"user": "john_doe", "limit": 10}]
+- ALWAYS call the tool first before responding with changelist information` : '';
+
+          const toolInstructions = `You are a helpful multilingual assistant with access to these tools:
 ${toolsDescription}
+
+MULTILINGUAL SUPPORT:
+- Users may ask questions in ANY language (English, French, Spanish, German, Japanese, Chinese, etc.)
+- You MUST understand queries in all languages and call the appropriate tools
+- Examples of multilingual queries that should trigger tools:
+  * English: "What's the weather in Paris?" → [TOOL_CALL: get_weather {"city": "Paris"}]
+  * French: "Quel temps fait-il à Paris?" → [TOOL_CALL: get_weather {"city": "Paris"}]
+  * Spanish: "¿Qué tiempo hace en París?" → [TOOL_CALL: get_weather {"city": "Paris"}]
+  * German: "Wie ist das Wetter in Paris?" → [TOOL_CALL: get_weather {"city": "Paris"}]
+  * Japanese: "パリの天気は?" → [TOOL_CALL: get_weather {"city": "Paris"}]
+- ALWAYS extract the city name and call the tool, regardless of the query language
+- Respond to the user in the SAME language they used in their query
 
 When you need to use a tool, respond with EXACTLY this format:
 [TOOL_CALL: tool_name {"param": "value"}]
@@ -1132,9 +1155,10 @@ For example:
 [TOOL_CALL: get_jira_issue {"issueKey": "PROJ-123"}]
 [TOOL_CALL: get_github_issue {"owner": "owner", "repo": "repo", "issueNumber": 1}]
 [TOOL_CALL: calculator {"expression": "5+3"}]
-${transcriptExamples}${transcriptRules}
+[TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 10}]
+${transcriptExamples}${transcriptRules}${perforceRules}
 
-After using a tool, you'll receive the result and should provide a natural language response to the user.`;
+After using a tool, you'll receive the result and should provide a natural language response to the user IN THEIR LANGUAGE.`;
 
           const arithmeticHint = `\nFor arithmetic expressions (e.g., "5+1", "12.3*4", "sin(pi/2)+log(10)+3^2"), use the calculator tool with an expression string.`;
           const fullInstructions = toolInstructions + arithmeticHint;
@@ -1152,23 +1176,74 @@ After using a tool, you'll receive the result and should provide a natural langu
         }
       }
       
+      // Detect if query is in non-English language and translate if needed for better tool calling
+      const lastUserMsg = conversationMessages[conversationMessages.length - 1];
+      if (lastUserMsg && lastUserMsg.role === 'user' && enableTools && needsTools) {
+        const userQuery = lastUserMsg.content;
+        
+        // Simple language detection (check for non-ASCII characters or common non-English words)
+        const hasNonAscii = /[^\x00-\x7F]/.test(userQuery); // Japanese, Chinese, etc.
+        const hasFrench = /\b(quel|quelle|comment|pourquoi|où|quand|temps|fait|paris)\b/i.test(userQuery);
+        const hasSpanish = /\b(qué|cómo|dónde|cuándo|tiempo|hace)\b/i.test(userQuery);
+        const hasGerman = /\b(wie|was|wo|wann|wetter|ist)\b/i.test(userQuery);
+        
+        const isNonEnglish = hasNonAscii || hasFrench || hasSpanish || hasGerman;
+        
+        if (isNonEnglish) {
+          console.log(`[TRANSLATION] Non-English query detected, translating to English for tool calling...`);
+          try {
+            // Use the LLM to translate the query to English
+            const translationPrompt = [
+              { role: 'system', content: 'Translate the following text to English. Only output the English translation, nothing else.' },
+              { role: 'user', content: userQuery }
+            ];
+            
+            const translationResp = await axios.post(`${ollamaUrl}/api/chat`, {
+              model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
+              messages: translationPrompt,
+              stream: false
+            }, { timeout: 10000 });
+            
+            const englishQuery = translationResp.data?.message?.content?.trim();
+            if (englishQuery) {
+              console.log(`[TRANSLATION] Original: "${userQuery}"`);
+              console.log(`[TRANSLATION] English: "${englishQuery}"`);
+              
+              // Store original query for response
+              lastUserMsg.originalContent = userQuery;
+              lastUserMsg.content = englishQuery; // Use English for tool calling
+            }
+          } catch (err) {
+            console.error('[TRANSLATION] Translation failed:', err.message);
+            // Continue with original query if translation fails
+          }
+        }
+      }
+      
       // Tool calling loop
       let maxIterations = 5;
+      let toolsAlreadyExecuted = false; // Track if we've already called tools
       while (maxIterations > 0) {
         maxIterations--;
         
         const requestBody = {
           model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
           messages: conversationMessages,
-          stream: false
+          stream: false,
+          options: {
+            temperature: 0.3,  // Lower temperature for faster, more focused responses
+            num_predict: 2048, // Limit max tokens to prevent extremely long thinking sections
+            top_p: 0.9,        // Nucleus sampling for better quality
+            repeat_penalty: 1.1 // Slight penalty to avoid repetitive thinking
+          }
         };
         
-        // Only add tools if the query needs them, and use filtered tools
-        if (enableTools && needsTools) {
+        // Only add tools on the FIRST iteration - after tools are executed, we don't need them for formatting the response
+        if (enableTools && needsTools && !toolsAlreadyExecuted) {
           requestBody.tools = filteredToolsDefinition;
           console.log(`[TOOLS] Adding ${filteredToolsDefinition.length} tools to LLM request (transcript tools ${needsTranscriptTool ? 'INCLUDED' : 'EXCLUDED'})`);
         } else {
-          console.log('[TOOLS] NOT adding tools to request');
+          console.log('[TOOLS] NOT adding tools to request (formatting response)');
         }
         
         // Use longer timeout for general knowledge questions (no tools)
@@ -1244,6 +1319,9 @@ After using a tool, you'll receive the result and should provide a natural langu
             });
           }
           
+          // Mark that tools have been executed - no need to add them on next iteration
+          toolsAlreadyExecuted = true;
+          
           // Continue loop to get final response with tool results
           continue;
         }
@@ -1285,6 +1363,9 @@ After using a tool, you'll receive the result and should provide a natural langu
             role: 'user',
             content: `Tool result for ${toolName}: ${JSON.stringify(toolResult)}. Please provide a natural language response to the user based on this information.`
           });
+          
+          // Mark that tools have been executed - no need to add them on next iteration
+          toolsAlreadyExecuted = true;
           
           // Continue loop to get final response
           continue;

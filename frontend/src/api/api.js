@@ -41,7 +41,7 @@ export const api = {
   chatWithLLM: async (model, messages, provider = 'ollama', onChunk, onToolCall) => {
     // Create AbortController for timeout handling
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout
+    const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout (for tool-heavy queries like Perforce)
 
     try {
       const response = await fetch(`${API_BASE_URL}/llm/chat`, {
