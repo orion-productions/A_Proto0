@@ -33,9 +33,36 @@ function LeftPanel() {
     setLocalScratchpadContent(scratchpadContent);
   }, [scratchpadContent]);
 
+  // Restore chat order from localStorage
+  useEffect(() => {
+    try {
+      const savedOrder = localStorage.getItem('chatOrder');
+      if (savedOrder && chats.length > 0) {
+        const orderArray = JSON.parse(savedOrder);
+        // Sort chats based on saved order
+        const orderedChats = [...chats].sort((a, b) => {
+          const indexA = orderArray.indexOf(a.id);
+          const indexB = orderArray.indexOf(b.id);
+          // Put items not in saved order at the end
+          if (indexA === -1) return 1;
+          if (indexB === -1) return -1;
+          return indexA - indexB;
+        });
+        // Only update if order changed
+        if (JSON.stringify(orderedChats.map(c => c.id)) !== JSON.stringify(chats.map(c => c.id))) {
+          setChats(orderedChats);
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring chat order:', error);
+    }
+  }, [chats.length]); // Only run when chat count changes
+
   const [editingChatId, setEditingChatId] = useState(null);
   const [localScratchpadContent, setLocalScratchpadContent] = useState('');
   const [editingTitle, setEditingTitle] = useState('');
+  const [draggedChatId, setDraggedChatId] = useState(null);
+  const [dragOverChatId, setDragOverChatId] = useState(null);
 
   const handleNewChat = async () => {
     try {
@@ -108,6 +135,66 @@ function LeftPanel() {
     }
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (chatId, e) => {
+    setDraggedChatId(chatId);
+    e.dataTransfer.effectAllowed = 'move';
+    // Add a semi-transparent effect
+    e.currentTarget.style.opacity = '0.5';
+  };
+
+  const handleDragEnd = (e) => {
+    e.currentTarget.style.opacity = '1';
+    setDraggedChatId(null);
+    setDragOverChatId(null);
+  };
+
+  const handleDragOver = (chatId, e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    if (draggedChatId && draggedChatId !== chatId) {
+      setDragOverChatId(chatId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverChatId(null);
+  };
+
+  const handleDrop = (targetChatId, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!draggedChatId || draggedChatId === targetChatId) {
+      setDragOverChatId(null);
+      return;
+    }
+
+    // Find indices
+    const draggedIndex = chats.findIndex(c => c.id === draggedChatId);
+    const targetIndex = chats.findIndex(c => c.id === targetChatId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Create new array with reordered chats
+    const newChats = [...chats];
+    const [draggedChat] = newChats.splice(draggedIndex, 1);
+    newChats.splice(targetIndex, 0, draggedChat);
+
+    // Update state
+    setChats(newChats);
+    setDragOverChatId(null);
+    
+    // Persist the order to localStorage
+    try {
+      const chatOrder = newChats.map(c => c.id);
+      localStorage.setItem('chatOrder', JSON.stringify(chatOrder));
+    } catch (error) {
+      console.error('Error saving chat order:', error);
+    }
+  };
+
   return (
     <div className="h-full bg-gray-800">
       <PanelGroup direction="vertical" onLayout={setLeftPanelSizes}>
@@ -133,11 +220,25 @@ function LeftPanel() {
                   {chats.map(chat => (
                     <div
                       key={chat.id}
+                      draggable={editingChatId !== chat.id}
+                      onDragStart={(e) => handleDragStart(chat.id, e)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(chat.id, e)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(chat.id, e)}
                       onClick={() => editingChatId !== chat.id && handleSelectChat(chat.id)}
-                      className={`flex items-center gap-2 p-3 mb-2 rounded-lg cursor-pointer transition-colors group ${
+                      className={`flex items-center gap-2 p-3 mb-2 rounded-lg ${editingChatId === chat.id ? 'cursor-default' : 'cursor-move'} transition-all group ${
                         currentChatId === chat.id
                           ? 'bg-blue-600'
                           : 'bg-gray-700 hover:bg-gray-600'
+                      } ${
+                        dragOverChatId === chat.id
+                          ? 'border-2 border-blue-400 shadow-lg'
+                          : 'border-2 border-transparent'
+                      } ${
+                        draggedChatId === chat.id
+                          ? 'opacity-50'
+                          : 'opacity-100'
                       }`}
                       title={chat.title}
                     >

@@ -4,19 +4,23 @@ What is the weather in London?
 What is the weather in Tokyo?
 Calculate sin(pi/2)+log(10)+9
 
+
 Hello
 What model are you? model type? model name? model size?
 Tu comprends le francais?
 日本語ができますか？
 What do you know about Albert Einstein?
 
+
+Hello
 Can you tell me what is in the transcript "251113_6_minute_english_how_important_is_play_download-3f2bdebe-96b6-4df6-ae4d-63b78bdd0cb8.transcript.json"?
 Can you summarize transcript "251113_6_minute_english_how_important_is_play_download-3f2bdebe-96b6-4df6-ae4d-63b78bdd0cb8.transcript.json"?
 
 
+Hello
 do you see the Perforce MCP Tools available?
 What can you tell me about my Perforce workspace?
-Show me recent Perforce changelists.
+Show me the 5 most recent Perforce changelists.
 Can you get details for Perforce changelist 12456?
 List files in the //depot/main/ directory in Perforce
 What is the revision history for //depot/main/config.txt in Perforce?

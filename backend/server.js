@@ -1063,12 +1063,36 @@ app.post('/api/llm/chat', async (req, res) => {
         }
       }
       
-      // Filter tools based on what's actually needed
-      // MCP Tools should ALWAYS be active, but transcript tools only when explicitly needed
+      // AGGRESSIVE tool filtering: only send relevant tools to speed up LLM decision-making
+      // Instead of sending all 76 tools, filter to only what's needed based on the query
       let filteredToolsDefinition = toolsDefinition;
       if (enableTools && needsTools) {
-        // Only include transcript tools if explicitly needed
-        if (!needsTranscriptTool) {
+        // Build a list of relevant tool categories based on what's needed
+        const relevantCategories = [];
+        
+        if (needsWeatherTool) relevantCategories.push('weather', 'get_weather');
+        if (needsMathTool || needsAddTool) relevantCategories.push('add_numbers', 'calculator');
+        if (needsJiraTool) relevantCategories.push('jira');
+        if (needsSlackTool) relevantCategories.push('slack');
+        if (needsGithubTool) relevantCategories.push('github', 'git');
+        if (needsPerforceTool) relevantCategories.push('perforce', 'p4');
+        if (needsConfluenceTool) relevantCategories.push('confluence');
+        if (needsGmailTool) relevantCategories.push('gmail');
+        if (needsCalendarTool) relevantCategories.push('calendar');
+        if (needsDriveTool) relevantCategories.push('drive');
+        if (needsDiscordTool) relevantCategories.push('discord');
+        if (needsTranscriptTool) relevantCategories.push('transcript');
+        
+        // Filter to only relevant tools
+        if (relevantCategories.length > 0) {
+          filteredToolsDefinition = toolsDefinition.filter(t => {
+            const name = t.function.name.toLowerCase();
+            // Check if tool name matches any relevant category
+            return relevantCategories.some(category => name.includes(category));
+          });
+          console.log(`[TOOLS] Filtered to ${filteredToolsDefinition.length} relevant tools for query (${relevantCategories.join(', ')})`);
+        } else {
+          // Fallback: exclude transcript tools only
           filteredToolsDefinition = toolsDefinition.filter(t => {
             const name = t.function.name.toLowerCase();
             return !name.includes('transcript') && 
@@ -1082,9 +1106,7 @@ app.post('/api/llm/chat', async (req, res) => {
                    name !== 'summarize_keyword_in_latest_transcript' &&
                    name !== 'summarize_keyword_in_transcript';
           });
-          console.log(`[TOOLS] Filtered out transcript tools. ${filteredToolsDefinition.length} tools available (${toolsDefinition.length - filteredToolsDefinition.length} transcript tools excluded)`);
-        } else {
-          console.log(`[TOOLS] Transcript tools INCLUDED. ${filteredToolsDefinition.length} tools available (transcript tools enabled)`);
+          console.log(`[TOOLS] Using all non-transcript tools. ${filteredToolsDefinition.length} tools available`);
         }
       }
       
@@ -1132,8 +1154,19 @@ CRITICAL RULES FOR PERFORCE QUERIES:
 - Example: "10 most recent changelists from john_doe" → [TOOL_CALL: list_perforce_changelists {"user": "john_doe", "limit": 10}]
 - ALWAYS call the tool first before responding with changelist information` : '';
 
-          const toolInstructions = `You are a helpful multilingual assistant with access to these tools:
+          const toolInstructions = `You are a helpful multilingual assistant with access to MCP Tools (Model Context Protocol tools).
+
+AVAILABLE MCP TOOLS:
 ${toolsDescription}
+
+IMPORTANT: When asked if you "see" or "have access to" MCP tools, Perforce tools, GitHub tools, etc., DO NOT call any tools. Simply confirm YES and list the relevant tools from the list above in plain text. These are META-QUESTIONS about tool availability, not requests to USE the tools.
+
+Examples of META-QUESTIONS (do NOT call tools for these):
+- "Do you see the Perforce MCP tools available?" → Answer: "Yes, I can see the following Perforce MCP tools: list_perforce_changelists, get_perforce_file_info, etc."
+- "What tools do you have access to?" → Answer: List the tools in plain text
+- "Can you use GitHub tools?" → Answer: "Yes, I have access to GitHub tools: list_github_commits, get_github_issue, etc."
+
+ONLY call tools when the user asks you to DO something with actual data (e.g., "list changelists from Jose", "get weather in Paris", "calculate 5+3").
 
 MULTILINGUAL SUPPORT:
 - Users may ask questions in ANY language (English, French, Spanish, German, Japanese, Chinese, etc.)
@@ -1248,7 +1281,7 @@ After using a tool, you'll receive the result and should provide a natural langu
         
         // Use longer timeout for general knowledge questions (no tools)
         // Increased timeout for tool requests with large models (qwen3:30b needs more time with 76 tools)
-        const requestTimeout = (enableTools && needsTools) ? 300000 : 180000; // 300s (5min) with tools, 180s without tools
+        const requestTimeout = (enableTools && needsTools) ? 600000 : 180000; // 600s (10min) with tools, 180s without tools
         const response = await axios.post(`${ollamaUrl}/api/chat`, requestBody, {
           timeout: requestTimeout
         });

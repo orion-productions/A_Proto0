@@ -55,16 +55,41 @@ function Header() {
       </div>
       
       <div className="flex items-center gap-4">
-        {/* Mic Toggle */}
-        <button
-          onClick={() => setMicEnabled(!micEnabled)}
-          className={`p-2 rounded-lg transition-colors ${
-            micEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-700 hover:bg-gray-600'
-          }`}
-          title={micEnabled ? translate('mic.on') : translate('mic.off')}
-        >
-          {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-        </button>
+        {/* Mic Toggle with Speech Language Selector */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMicEnabled(!micEnabled)}
+            className={`p-2 rounded-lg transition-colors ${
+              micEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+            title={micEnabled ? translate('mic.on') : translate('mic.off')}
+          >
+            {micEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+          </button>
+          {micEnabled && (
+            <div className="flex gap-1">
+              {[
+                { code: 'en-US', flag: '🇬🇧', name: 'EN' },
+                { code: 'fr-FR', flag: '🇫🇷', name: 'FR' },
+                { code: 'es-ES', flag: '🇪🇸', name: 'ES' },
+                { code: 'de-DE', flag: '🇩🇪', name: 'DE' },
+                { code: 'ja-JP', flag: '🇯🇵', name: 'JA' },
+                { code: 'zh-CN', flag: '🇨🇳', name: 'ZH' },
+              ].map(lang => (
+                <button
+                  key={lang.code}
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('setSpeechLanguage', { detail: lang.code }));
+                  }}
+                  className="text-xs px-1.5 py-0.5 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+                  title={`Switch to ${lang.name}`}
+                >
+                  {lang.flag}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Speaker Toggle */}
         <button

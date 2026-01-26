@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api } from '../api/api';
 
 const useStore = create((set, get) => ({
-  // UI State
+  // UI State (mic and speaker always start disabled)
   micEnabled: false,
   speakerEnabled: false,
   selectedLanguage: localStorage.getItem('selectedLanguage') || 'en',
