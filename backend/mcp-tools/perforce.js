@@ -212,7 +212,7 @@ const listPerforceFiles = async (path, limit = 100) => {
 };
 
 // List directories in a path
-const listPerforceDirectories = async (path = '//...') => {
+const listPerforceDirectories = async (path = '//*') => {
   const result = await executeP4Command('dirs', [path]);
   
   if (result.error) return result;

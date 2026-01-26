@@ -178,6 +178,8 @@ async function executeTool(toolName, params) {
         return await mcpTools.getPerforceFileInfo(params.filePath);
       case 'list_perforce_files':
         return await mcpTools.listPerforceFiles(params.path, params.limit);
+      case 'list_perforce_directories':
+        return await mcpTools.listPerforceDirectories(params.path);
       case 'get_perforce_file_content':
         return await mcpTools.getPerforceFileContent(params.filePath, params.revision);
       case 'get_perforce_file_history':
