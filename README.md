@@ -6,11 +6,14 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 
 - 🤖 **LLM Integration**: Chat with Ollama models (default: qwen3:30b running on GPU/CPU with automatic device detection)
 - 🔧 **MCP Tools** (80+ tools with aggressive filtering):
-  - **Development**: Perforce (changelists, depot explorer, workspace config), GitHub (issues, PRs, commits)
-  - **Collaboration**: JIRA (issues, sprints), Slack (channels, messages), Confluence (pages, spaces)
-  - **Google Workspace**: Gmail, Calendar, Drive (read-only access)
-  - **Communication**: Discord (servers, channels, messages)
-  - **Utilities**: Weather (Open-Meteo), Calculator (advanced math), Transcript management
+  - **Development**: Perforce (8 tools), GitHub (8 tools)
+  - **Collaboration**: JIRA (7 tools), Slack (6 tools), Confluence (8 tools)
+  - **Google Workspace**: Gmail (8 tools), Calendar (7 tools), Drive (9 tools)
+  - **Communication**: Discord (5 tools)
+  - **Utilities**: Weather (1 tool), Calculator (2 tools), Transcripts (10 tools)
+  - **Expandable Agent Section**: Click categories to reveal all individual tools with descriptions
+  - **Tool Count Display**: Each category shows the number of available tools in brackets
+  - **Active Tool Monitoring**: Visual indicators show which specific tools are currently executing
   - **Intelligent Tool Filtering**: Only sends relevant tools to LLM based on query (7-15 tools instead of 80+)
   - **Fast Response**: Simple tool queries complete in 10-20 seconds instead of minutes
 - 🎤 **Advanced Voice Controls**: 
@@ -123,55 +126,59 @@ Current test coverage includes:
    - Manual language selection via flag buttons next to mic
    - Click "🌍 Auto" badge to reset to English
 5. **Voice Output**: Enable the speaker button to hear responses with gender-specific voices (adapts to response language)
-6. **Select Tools**: Click on MCP agents in the right panel to enable them
-6. **Record Audio**:
+6. **Explore MCP Tools**: 
+   - Click on any category in the Agent Section (right panel) to expand and see all available tools
+   - Tool counts are displayed in brackets (e.g., "Perforce (8)")
+   - Active tools are highlighted in blue with a 🔧 wrench icon during execution
+   - Click again to collapse the category
+8. **Record Audio**:
    - Use the recording section to record meetings with high-quality settings
    - Live transcription appears automatically during recording
    - Recordings are saved as timestamped audio files (WebM/MP4/OGG) with no audio feedback
-7. **Transcribe Audio Files**:
+9. **Transcribe Audio Files**:
    - Load an audio file (MP3, WAV, WebM, MP4, OGG, FLAC, etc.)
    - Click the "Transcript" button to transcribe using local Whisper
    - Transcripts are saved as `.transcript.json` files matching the audio filename
-8. **Audio Calendar**:
-   - Click the "Calendar" button in the recording section to open the audio calendar
-   - Navigate between months using the arrow buttons
-   - Audio files are displayed as colored dots on their recording dates (color indicates duration: blue=short, orange=medium, red=long)
-   - Click on any date to see all audio files recorded on that day
-   - Select an audio file to load it into the main interface
-   - Automatic transcript association: calendar shows which files have transcripts
-   - Click "Transcribe Now" to generate transcripts for audio files without them
-   - Selected audio files can be transcribed directly from the calendar (downloads and processes automatically)
-10. **Query Transcripts**: Use natural language to search transcripts (AI automatically filters transcript tools for general questions):
+10. **Audio Calendar**:
+    - Click the "Calendar" button in the recording section to open the audio calendar
+    - Navigate between months using the arrow buttons
+    - Audio files are displayed as colored dots on their recording dates (color indicates duration: blue=short, orange=medium, red=long)
+    - Click on any date to see all audio files recorded on that day
+    - Select an audio file to load it into the main interface
+    - Automatic transcript association: calendar shows which files have transcripts
+    - Click "Transcribe Now" to generate transcripts for audio files without them
+    - Selected audio files can be transcribed directly from the calendar (downloads and processes automatically)
+12. **Query Transcripts**: Use natural language to search transcripts (AI automatically filters transcript tools for general questions):
     - "show the latest transcript"
     - "find sentences where 'keyword' is mentioned"
     - "summarize the transcript" (full LLM-generated summary)
-11. **Ask About Available Tools**: Query what tools are available (instant response, no tool execution):
+13. **Ask About Available Tools**: Query what tools are available (instant response, no tool execution):
     - "Do you see the Perforce MCP tools available?"
     - "What GitHub tools do you have access to?"
     - "Can you use Jira tools?"
-12. **Use Perforce Tools**: Query your Perforce depot and changelists:
+14. **Use Perforce Tools**: Query your Perforce depot and changelists:
     - "List the 10 most recent changelists from [username]"
     - "Show me what's in the depot"
     - "Tell me about my P4 workspace"
     - "What files were changed in changelist 69297?"
-13. **Use Collaboration Tools**: Ask about JIRA, Slack, GitHub, etc.:
+15. **Use Collaboration Tools**: Ask about JIRA, Slack, GitHub, etc.:
     - "Show me JIRA issue PROJ-123"
     - "List recent messages in #general channel"
     - "What are the open issues in [repo]?"
-14. **Scratchpad**: Write notes in the bottom-left section (auto-saves to file, persists across sessions)
-15. **Settings**: Click the settings icon to configure models and API keys
-16. **Font Scale Factor**:
+16. **Scratchpad**: Write notes in the bottom-left section (auto-saves to file, persists across sessions)
+17. **Settings**: Click the settings icon to configure models and API keys
+18. **Font Scale Factor**:
     - Open Settings and adjust the "Font Scale Factor" slider (1.0x to 5.0x)
     - Changes apply immediately to all text in the application
     - Setting is persisted and restored on next session
-17. **Settings Window Controls**:
+19. **Settings Window Controls**:
     - **Move**: Click and drag the "Settings" header to reposition the window
     - **Resize**: Click and drag any border or corner to resize the window
     - Window position and size are automatically saved and restored
-18. **Voice Gender Selection**:
+20. **Voice Gender Selection**:
     - In Settings, choose between masculine and feminine voices for text-to-speech
     - Voice selection adapts to the current language setting
-19. **Language Settings**:
+21. **Language Settings**:
     - Change language in Settings to switch the entire interface (8 languages supported)
     - All text, including chat names and error messages, updates immediately
 
@@ -223,10 +230,10 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 
 ### Development & Version Control
 
-#### **Perforce** (7 tools)
+#### **Perforce** (8 tools)
 - `list_perforce_changelists`: List recent commits/changelists (filter by user, limit)
 - `get_perforce_changelist`: Get detailed changelist info (files, diffs, description)
-- `list_perforce_directories`: Explore depot structure
+- `list_perforce_directories`: Explore depot structure (fixed wildcard syntax)
 - `list_perforce_files`: List files in a depot directory
 - `get_perforce_file_info`: Get file metadata
 - `get_perforce_file_content`: Read file content from depot
@@ -239,62 +246,75 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 - "Tell me about my P4 workspace configuration"
 - "What files were modified in changelist 69297?"
 
-#### **GitHub** (Read-only access)
-- List repositories, issues, pull requests
-- View commits and file contents
-- Search code and issues
+#### **GitHub** (8 tools - Read-only access)
+- `get_github_issue`: View issue details
+- `get_github_repo`: View repository information
+- `list_github_issues`: List issues with filters
+- `get_github_pull_request`: View PR details
+- `list_github_pull_requests`: List PRs with filters
+- `get_github_issue_comments`: View issue comments
+- `get_github_commits`: View commit history
+- `search_github_repos`: Search repositories
 
 ### Collaboration & Project Management
 
-#### **JIRA** (Read-only)
+#### **JIRA** (7 tools - Read-only)
 - View issues, sprints, boards
 - Search projects and issues
 - Get issue details and comments
+- View transitions and worklog
 
-#### **Slack** (Read-only)
+#### **Slack** (6 tools - Read-only)
 - List channels and messages
 - Search conversations
 - View channel history
+- Get user information
+- View thread replies
 
-#### **Confluence** (Read-only)
+#### **Confluence** (8 tools - Read-only)
 - Browse spaces and pages
 - Search documentation
-- View page content
+- View page content, children, attachments, comments
 
 ### Google Workspace (Read-only)
 
-- **Gmail**: Read emails, search inbox
-- **Google Calendar**: View events and schedules
-- **Google Drive**: List and read files
+- **Gmail** (8 tools): Read emails, search inbox, view labels, threads, attachments, profile
+- **Google Calendar** (7 tools): View events and schedules, search, free/busy status, upcoming events
+- **Google Drive** (9 tools): List and read files, search, folders, shared files, recent files
 
 ### Communication
 
-#### **Discord** (Read-only)
+#### **Discord** (5 tools - Read-only)
 - List servers and channels
 - View messages and threads
-- Search conversations
+- Get guild member information
 
 ### Utilities
 
-#### **Weather**
+#### **Weather** (1 tool)
 - Get current weather for any city (Open-Meteo API)
 - Temperature, conditions, wind, humidity
 
-#### **Calculator**
-- Advanced math: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`
+#### **Calculator** (2 tools)
+- `add_numbers`: Add two numbers
+- `calculator`: Advanced math with `sin`, `cos`, `tan`, `asin`, `acos`, `atan`
 - Functions: `exp`, `log`, `ln`, `sqrt`, `abs`, `pow`, `min`, `max`
 - Constants: `pi`, `e`
 - Arithmetic: `+`, `-`, `*`, `/`, `^`, parentheses
 
 **Example**: `"Calculate sin(PI/2) + log(100)"`
 
-#### **Transcript Tools** (6 tools with intelligent filtering)
+#### **Transcript Tools** (10 tools with intelligent filtering)
 - `get_latest_transcript`: Display the most recent transcript
 - `get_transcript`: Display a specific transcript by filename
-- `find_sentences_in_latest_transcript`: Find all sentences containing a keyword
+- `get_transcripts`: List all available transcripts
+- `search_transcripts`: Search transcripts by keyword
+- `find_sentences_in_latest_transcript`: Find all sentences containing a keyword in latest
 - `find_sentences_in_transcript`: Find sentences in a specific transcript
-- `summarize_keyword_in_latest_transcript`: Summarize keyword mentions
+- `summarize_keyword_in_latest_transcript`: Summarize keyword mentions in latest
 - `summarize_keyword_in_transcript`: Summarize keyword in specific transcript
+- `get_transcript_stats`: Get statistics about a transcript
+- `list_transcript_speakers`: List all speakers in a transcript
 
 **Example queries:**
 - "show the latest transcript"

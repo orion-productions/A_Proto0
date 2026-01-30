@@ -1,12 +1,25 @@
-import React from 'react';
-import { Bot, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import useStore from '../store/useStore';
 import { useTranslation, translateToolDescription } from '../utils/i18n';
 
 // Memoize to prevent unnecessary re-renders
 const AgentSection = React.memo(() => {
-  const { mcpTools, selectedTools, activeTools, toggleTool, selectedLanguage } = useStore();
+  const { mcpTools, activeTools, selectedLanguage } = useStore();
   const t = useTranslation(selectedLanguage);
+  const [expandedCategories, setExpandedCategories] = useState(new Set());
+
+  const toggleCategory = (categoryId) => {
+    setExpandedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryId)) {
+        newSet.delete(categoryId);
+      } else {
+        newSet.add(categoryId);
+      }
+      return newSet;
+    });
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -21,38 +34,83 @@ const AgentSection = React.memo(() => {
             {t('no.agents.available')}
           </div>
         ) : (
-          <div className="space-y-2">
-            {mcpTools.map(tool => {
-              const isActive = activeTools.includes(tool.id);
-              const isSelected = selectedTools.includes(tool.id);
+          <div className="space-y-1">
+            {mcpTools.map(category => {
+              const isExpanded = expandedCategories.has(category.id);
+              const toolCount = category.tools?.length || 0;
+              const hasActiveTools = category.tools?.some(tool => 
+                activeTools.includes(tool.name)
+              );
               
               return (
-                <div
-                  key={tool.id}
-                  onClick={() => toggleTool(tool.id)}
-                  className={`p-2 rounded-lg cursor-pointer transition-colors ${
-                    isActive
-                      ? 'bg-blue-600 hover:bg-blue-700 animate-pulse'
-                      : isSelected
-                      ? 'bg-green-600 hover:bg-green-700'
-                      : 'bg-gray-700 hover:bg-gray-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2" title={`${tool.name} — ${translateToolDescription(tool.description, selectedLanguage)}`}>
-                    <div className="flex-1 min-w-0 text-xs text-gray-100 flex items-center gap-2">
-                      <span className="font-semibold">
-                        {tool.name}
-                        {tool.count !== undefined && (
-                          <span className="text-gray-400 ml-1">({tool.count})</span>
-                        )}
-                      </span>
-                      <span className="text-gray-300 truncate" style={{ fontSize: '0.6875rem' }}>{translateToolDescription(tool.description, selectedLanguage)}</span>
-                      {isActive && <span style={{ fontSize: '0.6875rem' }}>🔧 {t('active')}</span>}
+                <div key={category.id} className="space-y-1">
+                  {/* Category Header */}
+                  <div
+                    onClick={() => toggleCategory(category.id)}
+                    className={`p-2 rounded-lg cursor-pointer transition-colors ${
+                      hasActiveTools
+                        ? 'bg-blue-600 hover:bg-blue-700'
+                        : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {/* Chevron Icon */}
+                      {isExpanded ? (
+                        <ChevronDown size={14} className="flex-shrink-0" style={{ width: '0.875rem', height: '0.875rem' }} />
+                      ) : (
+                        <ChevronRight size={14} className="flex-shrink-0" style={{ width: '0.875rem', height: '0.875rem' }} />
+                      )}
+                      
+                      {/* Category Name and Count */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-gray-100">
+                            {category.name}
+                            <span className="text-gray-400 ml-1">({toolCount})</span>
+                          </span>
+                          {hasActiveTools && (
+                            <span className="text-xs animate-pulse">🔧</span>
+                          )}
+                        </div>
+                        <div className="text-gray-300 text-xs truncate" style={{ fontSize: '0.6875rem' }}>
+                          {translateToolDescription(category.description, selectedLanguage)}
+                        </div>
+                      </div>
                     </div>
-                    {isSelected && (
-                      <Check size={14} className="ml-1 flex-shrink-0" style={{ width: '0.875rem', height: '0.875rem' }} />
-                    )}
                   </div>
+
+                  {/* Expanded Tool List */}
+                  {isExpanded && category.tools && category.tools.length > 0 && (
+                    <div className="ml-6 space-y-1">
+                      {category.tools.map((tool, index) => {
+                        const isActive = activeTools.includes(tool.name);
+                        
+                        return (
+                          <div
+                            key={`${category.id}-${tool.name}-${index}`}
+                            className={`p-2 rounded-md transition-colors ${
+                              isActive
+                                ? 'bg-blue-500 animate-pulse'
+                                : 'bg-gray-800'
+                            }`}
+                            title={translateToolDescription(tool.description, selectedLanguage)}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-200 font-mono">
+                                {tool.name}
+                              </span>
+                              {isActive && (
+                                <span className="text-xs">🔧</span>
+                              )}
+                            </div>
+                            <div className="text-gray-400 text-xs mt-1 truncate" style={{ fontSize: '0.625rem' }}>
+                              {translateToolDescription(tool.description, selectedLanguage)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -66,4 +124,3 @@ const AgentSection = React.memo(() => {
 AgentSection.displayName = 'AgentSection';
 
 export default AgentSection;
-
