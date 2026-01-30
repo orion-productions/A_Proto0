@@ -40,7 +40,12 @@ const AgentSection = React.memo(() => {
                 >
                   <div className="flex items-center justify-between gap-2" title={`${tool.name} — ${translateToolDescription(tool.description, selectedLanguage)}`}>
                     <div className="flex-1 min-w-0 text-xs text-gray-100 flex items-center gap-2">
-                      <span className="font-semibold">{tool.name}</span>
+                      <span className="font-semibold">
+                        {tool.name}
+                        {tool.count !== undefined && (
+                          <span className="text-gray-400 ml-1">({tool.count})</span>
+                        )}
+                      </span>
                       <span className="text-gray-300 truncate" style={{ fontSize: '0.6875rem' }}>{translateToolDescription(tool.description, selectedLanguage)}</span>
                       {isActive && <span style={{ fontSize: '0.6875rem' }}>🔧 {t('active')}</span>}
                     </div>

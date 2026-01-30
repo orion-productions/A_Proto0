@@ -1267,7 +1267,7 @@ After using a tool, you'll receive the result and should provide a natural langu
           stream: false,
           options: {
             temperature: 0.3,  // Lower temperature for faster, more focused responses
-            num_predict: 2048, // Limit max tokens to prevent extremely long thinking sections
+            num_predict: toolsAlreadyExecuted ? 512 : 2048, // MUCH smaller limit after tools executed (just formatting)
             top_p: 0.9,        // Nucleus sampling for better quality
             repeat_penalty: 1.1 // Slight penalty to avoid repetitive thinking
           }
@@ -1278,7 +1278,7 @@ After using a tool, you'll receive the result and should provide a natural langu
           requestBody.tools = filteredToolsDefinition;
           console.log(`[TOOLS] Adding ${filteredToolsDefinition.length} tools to LLM request (transcript tools ${needsTranscriptTool ? 'INCLUDED' : 'EXCLUDED'})`);
         } else {
-          console.log('[TOOLS] NOT adding tools to request (formatting response)');
+          console.log(`[TOOLS] NOT adding tools to request (formatting response) - using aggressive token limit (${requestBody.options.num_predict})`);
         }
         
         // Use longer timeout for general knowledge questions (no tools)
@@ -1706,29 +1706,36 @@ app.post('/api/llm/warmup', async (req, res) => {
 
 // MCP Tools
 app.get('/api/mcp/tools', (req, res) => {
+  // Count actual tools per category by analyzing toolsDefinition
+  const countToolsByCategory = (categoryKeyword) => {
+    return toolsDefinition.filter(tool => {
+      const toolName = tool.function.name.toLowerCase();
+      return toolName.includes(categoryKeyword.toLowerCase());
+    }).length;
+  };
+
   // Group tools by service/category for better organization
   const toolCategories = {
-    'weather': { id: 'weather', name: 'Weather', description: 'Get weather for a city', category: 'General' },
-    'add': { id: 'add', name: 'Add Numbers', description: 'Add two numbers together', category: 'General' },
-    'calculator': { id: 'calculator', name: 'Calculator', description: 'Evaluate a math expression (add/subtract/multiply/divide)', category: 'General' },
+    'weather': { id: 'weather', name: 'Weather', description: 'Get weather for a city', category: 'General', count: countToolsByCategory('weather') },
+    'add': { id: 'add', name: 'Calculator', description: 'Add numbers and evaluate math expressions', category: 'General', count: countToolsByCategory('add') + countToolsByCategory('calculator') },
     // Jira tools
-    'jira': { id: 'jira', name: 'Jira', description: 'Read Jira issues, projects, and more', category: 'Jira' },
+    'jira': { id: 'jira', name: 'Jira', description: 'Read Jira issues, projects, and more', category: 'Jira', count: countToolsByCategory('jira') },
     // Slack tools
-    'slack': { id: 'slack', name: 'Slack', description: 'Read Slack channels, messages, and users', category: 'Slack' },
+    'slack': { id: 'slack', name: 'Slack', description: 'Read Slack channels, messages, and users', category: 'Slack', count: countToolsByCategory('slack') },
     // GitHub tools
-    'github': { id: 'github', name: 'GitHub', description: 'Read GitHub repositories, issues, PRs, and commits', category: 'GitHub' },
+    'github': { id: 'github', name: 'GitHub', description: 'Read GitHub repositories, issues, PRs, and commits', category: 'GitHub', count: countToolsByCategory('github') },
     // Perforce tools
-    'perforce': { id: 'perforce', name: 'Perforce', description: 'Read Perforce changelists, files, and workspace info', category: 'Perforce' },
+    'perforce': { id: 'perforce', name: 'Perforce', description: 'Read Perforce changelists, files, and workspace info', category: 'Perforce', count: countToolsByCategory('perforce') },
     // Confluence tools
-    'confluence': { id: 'confluence', name: 'Confluence', description: 'Read Confluence pages, spaces, and documentation', category: 'Confluence' },
+    'confluence': { id: 'confluence', name: 'Confluence', description: 'Read Confluence pages, spaces, and documentation', category: 'Confluence', count: countToolsByCategory('confluence') },
     // Google Workspace tools
-    'gmail': { id: 'gmail', name: 'Gmail', description: 'Read Gmail messages, labels, and threads', category: 'Google Workspace' },
-    'google-calendar': { id: 'google-calendar', name: 'Google Calendar', description: 'Read calendar events, calendars, and schedules', category: 'Google Workspace' },
-    'google-drive': { id: 'google-drive', name: 'Google Drive', description: 'Read Drive files, folders, and metadata', category: 'Google Workspace' },
+    'gmail': { id: 'gmail', name: 'Gmail', description: 'Read Gmail messages, labels, and threads', category: 'Google Workspace', count: countToolsByCategory('gmail') },
+    'google-calendar': { id: 'google-calendar', name: 'Google Calendar', description: 'Read calendar events, calendars, and schedules', category: 'Google Workspace', count: countToolsByCategory('calendar') },
+    'google-drive': { id: 'google-drive', name: 'Google Drive', description: 'Read Drive files, folders, and metadata', category: 'Google Workspace', count: countToolsByCategory('drive') },
     // Discord tools
-    'discord': { id: 'discord', name: 'Discord', description: 'Read Discord channels, messages, servers, and users', category: 'Discord' },
+    'discord': { id: 'discord', name: 'Discord', description: 'Read Discord channels, messages, servers, and users', category: 'Discord', count: countToolsByCategory('discord') },
     // Transcripts tools
-    'transcripts': { id: 'transcripts', name: 'Transcripts', description: 'Display, search, and summarize meeting transcripts and recordings', category: 'General' },
+    'transcripts': { id: 'transcripts', name: 'Transcripts', description: 'Display, search, and summarize meeting transcripts and recordings', category: 'General', count: countToolsByCategory('transcript') },
   };
   
   res.json(Object.values(toolCategories));
