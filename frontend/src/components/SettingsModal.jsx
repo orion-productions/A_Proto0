@@ -7,6 +7,7 @@ function SettingsModal() {
   const {
     selectedModel,
     availableModels,
+    modelUsage,
     setSelectedModel,
     setShowSettings,
     fontScaleFactor,
@@ -21,6 +22,31 @@ function SettingsModal() {
   } = useStore();
   
   const t = useTranslation(selectedLanguage);
+
+  const DEFAULT_MODEL = 'qwen2.5:1.5b';
+
+  // Sort models: default first, then by usage, then alphabetically
+  const sortedModels = React.useMemo(() => {
+    // Get all unique models (from availableModels + default)
+    const allModels = new Set([DEFAULT_MODEL, ...availableModels.map(m => m.name)]);
+    
+    // Convert to array and sort
+    const sorted = Array.from(allModels).sort((a, b) => {
+      // Default model always first
+      if (a === DEFAULT_MODEL) return -1;
+      if (b === DEFAULT_MODEL) return 1;
+      
+      // Sort by usage count (descending)
+      const usageA = modelUsage[a] || 0;
+      const usageB = modelUsage[b] || 0;
+      if (usageA !== usageB) return usageB - usageA;
+      
+      // If usage is equal, sort alphabetically
+      return a.localeCompare(b);
+    });
+    
+    return sorted;
+  }, [availableModels, modelUsage]);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(null); // 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
@@ -219,12 +245,21 @@ function SettingsModal() {
               className="w-full bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
               style={{ padding: '8px 12px' }}
             >
-              <option value="qwen2.5:1.5b">qwen2.5:1.5b (Default)</option>
-              {availableModels.map(model => (
-                <option key={model.name} value={model.name}>
-                  {model.name}
-                </option>
-              ))}
+              {sortedModels.map(modelName => {
+                const isDefault = modelName === DEFAULT_MODEL;
+                const usage = modelUsage[modelName] || 0;
+                const displayText = isDefault 
+                  ? `${modelName} (Default${usage > 0 ? `, ${usage} uses` : ''})` 
+                  : usage > 0 
+                    ? `${modelName} (${usage} uses)` 
+                    : modelName;
+                
+                return (
+                  <option key={modelName} value={modelName}>
+                    {displayText}
+                  </option>
+                );
+              })}
             </select>
             <p className="text-xs text-gray-400" style={{ marginTop: '8px' }}>
               {t('current.model')}: {selectedModel}

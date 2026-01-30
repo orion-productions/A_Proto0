@@ -42,11 +42,11 @@ try {
 const buildP4Command = (command, args = []) => {
   let cmd = 'p4';
   
-  // Quote all credential parameters to handle special characters (like | & ; etc.)
+  // Quote credential parameters (except password - we'll use env var)
   if (P4_PORT) cmd += ` -p "${P4_PORT}"`;
   if (P4_USER) cmd += ` -u "${P4_USER}"`;
   if (P4_CLIENT) cmd += ` -c "${P4_CLIENT}"`;
-  if (P4_PASSWD) cmd += ` -P "${P4_PASSWD}"`;
+  // NOTE: P4PASSWD is now set via environment variable (see execP4Command)
   
   cmd += ` ${command}`;
   if (args.length > 0) {
@@ -57,12 +57,65 @@ const buildP4Command = (command, args = []) => {
 };
 
 // Execute P4 command and parse output
+// Helper function to login to Perforce and get a ticket
+const loginToPerforce = async () => {
+  if (!P4_PASSWD) {
+    return { error: 'P4PASSWD not set in credentials/perforce.env' };
+  }
+  
+  try {
+    // Use echo to pipe password to p4 login command
+    const loginCmd = `echo '${P4_PASSWD.replace(/'/g, "'\\''")}' | p4 -p "${P4_PORT}" -u "${P4_USER}" login`;
+    const { stdout, stderr } = await execAsync(loginCmd, { 
+      maxBuffer: 10 * 1024 * 1024 
+    });
+    
+    if (stderr && stderr.includes('logged in')) {
+      console.log('✅ Perforce login successful');
+      return { success: true };
+    } else if (stderr) {
+      return { error: stderr };
+    }
+    
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
 const executeP4Command = async (command, args = []) => {
   try {
     const cmd = buildP4Command(command, args);
+    
+    // Perforce uses ticket-based authentication
+    // Try command first, if it fails with password error, login and retry
+    
     const { stdout, stderr } = await execAsync(cmd, { 
       maxBuffer: 10 * 1024 * 1024 // 10MB buffer
     });
+    
+    // Check for authentication errors
+    if (stderr && stderr.includes('Perforce password (P4PASSWD) invalid or unset')) {
+      console.log('⚠️ Perforce ticket expired or missing, attempting to login...');
+      
+      // Try to login
+      const loginResult = await loginToPerforce();
+      if (loginResult.error) {
+        return { error: `Login failed: ${loginResult.error}` };
+      }
+      
+      // Retry the command after successful login
+      console.log('🔄 Retrying command after login...');
+      const retryResult = await execAsync(cmd, { 
+        maxBuffer: 10 * 1024 * 1024 
+      });
+      
+      if (retryResult.stderr && !retryResult.stderr.includes('info:')) {
+        return { error: retryResult.stderr };
+      }
+      
+      return { output: retryResult.stdout };
+    }
     
     if (stderr && !stderr.includes('info:')) {
       return { error: stderr };
@@ -70,6 +123,33 @@ const executeP4Command = async (command, args = []) => {
     
     return { output: stdout };
   } catch (error) {
+    // If execution fails, try to login and retry once
+    if (error.message.includes('Perforce password') || error.message.includes('not logged in')) {
+      console.log('⚠️ Command failed with auth error, attempting to login...');
+      
+      const loginResult = await loginToPerforce();
+      if (loginResult.error) {
+        return { error: `Login failed: ${loginResult.error}` };
+      }
+      
+      // Retry the command
+      try {
+        console.log('🔄 Retrying command after login...');
+        const cmd = buildP4Command(command, args);
+        const { stdout, stderr } = await execAsync(cmd, { 
+          maxBuffer: 10 * 1024 * 1024 
+        });
+        
+        if (stderr && !stderr.includes('info:')) {
+          return { error: stderr };
+        }
+        
+        return { output: stdout };
+      } catch (retryError) {
+        return { error: retryError.message };
+      }
+    }
+    
     return { error: error.message };
   }
 };
@@ -125,31 +205,64 @@ const getPerforceChangelist = async (changelist) => {
 
 // List changelists
 const listPerforceChangelists = async (user = null, limit = 50) => {
-  const args = ['-m', limit.toString()];
-  if (user) {
-    args.push('-u', user);  // Fixed: separate arguments
-  }
-  args.push('//...');  // Fixed: add depot path
+  // Normalize username if provided
+  // Handle various formats: "Pierre Maury" / "Pierre.Maury" / "pierre maury" → "pierre_maury"
+  const normalizedUser = user ? user.toLowerCase().replace(/[\s.]+/g, '_') : null;
   
-  const result = await executeP4Command('changes', args);
+  // Fetch both submitted AND pending changelists, then merge them
+  // By default, 'p4 changes' only shows submitted, we need '-s pending' for pending ones
   
-  if (result.error) return result;
+  const allChangelists = [];
   
-  const changelists = [];
-  const lines = result.output.split('\n').filter(l => l.trim());
+  // 1. Get submitted changelists
+  const submittedArgs = ['-m', limit.toString()];
+  if (normalizedUser) submittedArgs.push('-u', normalizedUser);
+  submittedArgs.push('//...');
   
-  for (const line of lines) {
-    const match = line.match(/Change (\d+) on (.+?) by (.+?)@(.+?) '(.+?)'/);
-    if (match) {
-      changelists.push({
-        changelist: match[1],
-        date: match[2],
-        user: match[3],
-        client: match[4],
-        description: match[5],
-      });
+  const submittedResult = await executeP4Command('changes', submittedArgs);
+  if (!submittedResult.error) {
+    const lines = submittedResult.output.split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      const match = line.match(/Change (\d+) on (.+?) by (.+?)@(.+?) '(.+?)'/);
+      if (match) {
+        allChangelists.push({
+          changelist: match[1],
+          date: match[2],
+          user: match[3],
+          client: match[4],
+          description: match[5],
+          status: 'submitted'
+        });
+      }
     }
   }
+  
+  // 2. Get pending changelists
+  const pendingArgs = ['-m', limit.toString(), '-s', 'pending'];
+  if (normalizedUser) pendingArgs.push('-u', normalizedUser);
+  pendingArgs.push('//...');
+  
+  const pendingResult = await executeP4Command('changes', pendingArgs);
+  if (!pendingResult.error) {
+    const lines = pendingResult.output.split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      const match = line.match(/Change (\d+) on (.+?) by (.+?)@(.+?) \*pending\* '(.+?)'/);
+      if (match) {
+        allChangelists.push({
+          changelist: match[1],
+          date: match[2],
+          user: match[3],
+          client: match[4],
+          description: match[5],
+          status: 'pending'
+        });
+      }
+    }
+  }
+  
+  // 3. Sort by changelist number (descending) and limit
+  allChangelists.sort((a, b) => parseInt(b.changelist) - parseInt(a.changelist));
+  const changelists = allChangelists.slice(0, limit);
   
   return { changelists };
 };

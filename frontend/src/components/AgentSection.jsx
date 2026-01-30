@@ -25,7 +25,12 @@ const AgentSection = React.memo(() => {
     <div className="h-full flex flex-col">
       <div className="p-3 bg-gray-750 font-semibold border-b border-gray-700 flex items-center gap-2">
         <Bot size={18} style={{ width: '1.125rem', height: '1.125rem' }} />
-        {t('mcp.agents')}
+        <span>{t('mcp.agents')}</span>
+        {activeTools.length > 0 && (
+          <span className="text-xs text-blue-400 font-mono animate-blink ml-1">
+            🔧 {activeTools.join(', ')}
+          </span>
+        )}
       </div>
       
       <div className="flex-1 overflow-y-auto p-2">

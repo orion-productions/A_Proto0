@@ -4,7 +4,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 
 ## Features
 
-- 🤖 **LLM Integration**: Chat with Ollama models (default: qwen3:30b running on GPU/CPU with automatic device detection)
+- 🤖 **LLM Integration**: Chat with Ollama models (recommended: qwen2.5:7b for multilingual support, or qwen2.5:1.5b for speed) running on GPU/CPU with automatic device detection
 - 🔧 **MCP Tools** (80+ tools with aggressive filtering):
   - **Development**: Perforce (8 tools), GitHub (8 tools)
   - **Collaboration**: JIRA (7 tools), Slack (6 tools), Confluence (8 tools)
@@ -47,7 +47,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 - Git (for version control)
 - Node.js 22.x LTS (not 24.x - required for native module compatibility)
 - [Ollama](https://ollama.ai) installed and running
-- qwen3:30b or qwen2.5:1.5b model pulled in Ollama (recommended for best performance) or any compatible model
+- **qwen2.5:7b** (recommended - best balance of speed, multilingual support, and tool calling reliability) or qwen2.5:1.5b (fastest, good for English-only) model pulled in Ollama
 - Python 3.11+ (for Whisper transcription)
 - FFmpeg (for audio processing)
 - Visual Studio Build Tools 2022 with C++ workload (for compiling native modules)
@@ -71,9 +71,14 @@ ollama serve
 
 3. Pull the recommended model (if not already done):
 ```bash
-ollama pull qwen3:30b
-# or for faster performance on lower-end hardware:
+# Recommended: Best balance for multilingual tool calling
+ollama pull qwen2.5:7b
+
+# Alternative: Fastest for English-only queries
 ollama pull qwen2.5:1.5b
+
+# Alternative: Largest model (slower but most capable)
+ollama pull qwen3:30b
 ```
 
 4. Install Whisper for audio transcription:
@@ -167,6 +172,9 @@ Current test coverage includes:
     - "What are the open issues in [repo]?"
 16. **Scratchpad**: Write notes in the bottom-left section (auto-saves to file, persists across sessions)
 17. **Settings**: Click the settings icon to configure models and API keys
+    - **Intelligent Model Sorting**: Models are sorted by default (first), usage count (most used), then alphabetically
+    - **Usage Tracking**: See how many times you've used each model (e.g., "qwen2.5:7b (15 uses)")
+    - Model selection is persisted across sessions
 18. **Font Scale Factor**:
     - Open Settings and adjust the "Font Scale Factor" slider (1.0x to 5.0x)
     - Changes apply immediately to all text in the application
@@ -184,7 +192,7 @@ Current test coverage includes:
 
 ## Model Status, Device, and Memory
 
-- The header shows readiness like: `ollama app model qwen3:30b is ready. GPU - 21.76GB VRAM`
+- The header shows readiness like: `ollama app model qwen2.5:7b is ready. GPU - 7.65GB VRAM`
 - GPU/CPU is inferred from Ollama `/api/ps`; NPU is not exposed by the API (GPU shown when VRAM/gpu layers are present).
 - Memory shown is runtime VRAM if on GPU, otherwise RAM; if unavailable, falls back to the model file size.
 - Loading progress is displayed: `ollama app model qwen2.5:1.5b is loading X%`
@@ -193,20 +201,24 @@ Current test coverage includes:
   - `POST /api/llm/warmup` → warm a model: `{ "model": "qwen2.5:1.5b" }`
   - `POST /api/llm/stop` → unload a model: `{ "model": "qwen2.5:1.5b" }` (useful to force reload onto GPU)
 
-### Performance with Large Models
+### Performance with Recommended Models
 
-When using large models (e.g., qwen3:30b) with aggressive tool filtering:
-- **Simple queries**: 5-10 seconds (no tools)
-- **Tool-using queries**: 10-20 seconds (Perforce, GitHub, weather, etc.)
-- **Complex multi-tool queries**: 30-60 seconds
+When using qwen2.5:7b (recommended) with aggressive tool filtering:
+- **Simple queries**: 3-5 seconds (no tools)
+- **Tool-using queries**: 5-15 seconds (Perforce, GitHub, weather, etc.)
+- **Complex multi-tool queries**: 20-45 seconds
 - **Meta-questions** (tool availability): Instant response (no tool execution)
 - **Timeout**: 10 minutes for tool requests, 3 minutes for general queries
 - **Summarization**: 2 minutes timeout for long transcripts
 
 **Performance Optimization:**
 - **Aggressive Tool Filtering**: Only 7-15 relevant tools sent to LLM per query (instead of 80+)
-- **Smart Detection**: Query keywords determine which tool categories to include
+- **Smart Detection**: Query keywords + user names determine which tool categories to include
+  - Detects: "Jose changed files", "files by Pierre", "Aaron's commits" → Perforce tools
+  - Handles multilingual queries (English, French, Japanese, etc.)
 - **Fast Decision-Making**: LLM can identify the right tool in seconds, not minutes
+- **Post-Tool Token Limiting**: Reduces "thinking" tokens (512 vs 2048) when formatting tool results
+- **Small Model Support**: qwen2.5:1.5b uses manual tool format for better reliability
 
 The backend automatically filters tools and adjusts timeouts based on query type.
 
@@ -232,6 +244,9 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 
 #### **Perforce** (8 tools)
 - `list_perforce_changelists`: List recent commits/changelists (filter by user, limit)
+  - **Pending changelist support**: Fetches both submitted AND pending changelists
+  - **Smart username normalization**: Handles "Jose Vieira", "jose.vieira", "Jose.Vieira" → `jose_vieira`
+  - **Auto-sorting**: Merged results sorted by changelist number (newest first)
 - `get_perforce_changelist`: Get detailed changelist info (files, diffs, description)
 - `list_perforce_directories`: Explore depot structure (fixed wildcard syntax)
 - `list_perforce_files`: List files in a depot directory
@@ -240,11 +255,17 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 - `get_perforce_file_history`: View file revision history
 - `get_perforce_client`: View workspace configuration
 
+**Authentication:**
+- **Ticket-based authentication**: Auto-login when ticket expires
+- **Password handling**: Safely manages special characters in passwords
+- **Automatic retry**: Seamlessly re-authenticates and retries failed commands
+
 **Example queries:**
-- "List the 5 most recent changelists from Jose Vieira"
+- "List the 5 most recent changelists from Jose Vieira" (handles any name format)
 - "Show me what's in the depot"
 - "Tell me about my P4 workspace configuration"
 - "What files were modified in changelist 69297?"
+- "List all files Pierre Maury changed over the last 30 days"
 
 #### **GitHub** (8 tools - Read-only access)
 - `get_github_issue`: View issue details

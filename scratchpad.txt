@@ -10,6 +10,9 @@ What model are you? model type? model name? model size?
 Tu comprends le francais?
 日本語ができますか？
 What do you know about Albert Einstein?
+宮崎 駿はだれですか？
+宮本茂はだれですか？
+qui est Napoleon Bonaparte?
 
 
 Hello
@@ -21,11 +24,13 @@ Hello
 do you see the Perforce MCP Tools available?
 What can you tell me about my Perforce workspace?
 Show me the 5 most recent Perforce changelists.
-Can you get details for Perforce changelist 12456?
 List files in the //Unseen/Main/ directory in Perforce
 What is the revision history for //Unseen/Main/config.txt in Perforce?
 Show me what's in the depot.
 Tell me about my P4 workspace configuration.
-Can you list the changelists from Jose Vieira?
-Can you list the 5 most recent changelists from Jose Vieira?
-Can you list all files Jose Vieira changed over the last month?
+Can you list the 10 most recent changelists from Jose Vieira?
+Can you list the 10 most recent changelists from Pierre Maury?
+Can you list the January 2026 changelists from Jose Vieira?
+Can you list all files Jose Vieira changed over the last 30days?
+can you give me details on changelist number #70846?
+Can you list all files in Perforce that Jose Vieira changed over the last 30days?

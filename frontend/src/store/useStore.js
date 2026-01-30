@@ -25,6 +25,7 @@ const useStore = create((set, get) => ({
   // LLM state
   selectedModel: localStorage.getItem('selectedModel') || 'qwen2.5:1.5b',
   availableModels: [],
+  modelUsage: JSON.parse(localStorage.getItem('modelUsage') || '{}'), // Track usage count per model
   ollamaStatus: { state: 'idle', message: '', messageKey: null, messageParams: {}, progress: 0 },
   
   // Font scale factor (persisted)
@@ -120,7 +121,13 @@ const useStore = create((set, get) => ({
   
   setSelectedModel: (model) => {
     localStorage.setItem('selectedModel', model);
-    set({ selectedModel: model });
+    
+    // Track model usage
+    const currentUsage = JSON.parse(localStorage.getItem('modelUsage') || '{}');
+    currentUsage[model] = (currentUsage[model] || 0) + 1;
+    localStorage.setItem('modelUsage', JSON.stringify(currentUsage));
+    
+    set({ selectedModel: model, modelUsage: currentUsage });
   },
   
   setFontScaleFactor: (scale) => {

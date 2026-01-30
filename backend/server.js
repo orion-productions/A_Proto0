@@ -601,7 +601,7 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsJiraTool = /jira|issue|project|ticket|bug|story|epic/i.test(lastUserMessage);
       const needsSlackTool = /slack|channel|message|workspace|thread/i.test(lastUserMessage);
       const needsGithubTool = /github|git|repository|repo|pull request|pr|issue|commit/i.test(lastUserMessage);
-      const needsPerforceTool = /perforce|p4|changelist|depot|workspace|client/i.test(lastUserMessage);
+      const needsPerforceTool = /perforce|p4|changelist|depot|workspace|client|(jose|pierre|aaron|kieran|yurie|kenan|denis|unseen).*(changed?|modified?|files?|commit)|(changed?|modified?|files?).*by.*(jose|pierre|aaron)/i.test(lastUserMessage);
       const needsConfluenceTool = /confluence|page|space|wiki|documentation/i.test(lastUserMessage);
       const needsGmailTool = /gmail|email|mail|message|inbox|unread|sent/i.test(lastUserMessage);
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
@@ -1274,9 +1274,17 @@ After using a tool, you'll receive the result and should provide a natural langu
         };
         
         // Only add tools on the FIRST iteration - after tools are executed, we don't need them for formatting the response
+        // For small models (< 3B params), skip native tool calling and rely on manual [TOOL_CALL: ...] format
+        const isSmallModel = model && (model.includes('1.5b') || model.includes('1b'));
+        const useNativeToolCalling = !isSmallModel; // Only use native tools for larger models
+        
         if (enableTools && needsTools && !toolsAlreadyExecuted) {
-          requestBody.tools = filteredToolsDefinition;
-          console.log(`[TOOLS] Adding ${filteredToolsDefinition.length} tools to LLM request (transcript tools ${needsTranscriptTool ? 'INCLUDED' : 'EXCLUDED'})`);
+          if (useNativeToolCalling) {
+            requestBody.tools = filteredToolsDefinition;
+            console.log(`[TOOLS] Adding ${filteredToolsDefinition.length} native tools to LLM request (transcript tools ${needsTranscriptTool ? 'INCLUDED' : 'EXCLUDED'})`);
+          } else {
+            console.log(`[TOOLS] Skipping native tools for small model ${model} - will use manual [TOOL_CALL: ...] format only`);
+          }
         } else {
           console.log(`[TOOLS] NOT adding tools to request (formatting response) - using aggressive token limit (${requestBody.options.num_predict})`);
         }
