@@ -37,7 +37,27 @@ function App() {
           api.getMCPTools(),
           api.getModels()
         ]);
-        setChats(chats);
+        
+        // Apply saved order from localStorage BEFORE setting chats
+        const savedOrder = localStorage.getItem('chatOrder');
+        if (savedOrder) {
+          const savedOrderArray = JSON.parse(savedOrder);
+          const orderedChats = [...chats].sort((a, b) => {
+            const indexA = savedOrderArray.indexOf(a.id);
+            const indexB = savedOrderArray.indexOf(b.id);
+            if (indexA === -1) return 1; // Not in saved order, put at end
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+          });
+          console.log('🔄 App.jsx: Applying saved order', orderedChats.map(c => c.id));
+          setChats(orderedChats);
+        } else {
+          // No saved order - save current backend order as initial
+          const initialOrder = chats.map(c => c.id);
+          localStorage.setItem('chatOrder', JSON.stringify(initialOrder));
+          console.log('💾 App.jsx: Saved initial order', initialOrder);
+          setChats(chats);
+        }
         setMcpTools(tools);
         setAvailableModels(models);
 

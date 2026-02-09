@@ -24,13 +24,24 @@ Hello
 do you see the Perforce MCP Tools available?
 What can you tell me about my Perforce workspace?
 Show me the 5 most recent Perforce changelists.
-List files in the //Unseen/Main/ directory in Perforce
-What is the revision history for //Unseen/Main/config.txt in Perforce?
+List files in the //Unseen/Main-Kmr-Engineer directory in Perforce
+What is the revision history for //Unseen/Main-Kmr-Engineer/config.txt in Perforce?
 Show me what's in the depot.
 Tell me about my P4 workspace configuration.
 Can you list the 10 most recent changelists from Jose Vieira?
 Can you list the 10 most recent changelists from Pierre Maury?
 Can you list the January 2026 changelists from Jose Vieira?
 Can you list all files Jose Vieira changed over the last 30days?
-can you give me details on changelist number #70846?
+Can you give me details on changelist number #70846?
 Can you list all files in Perforce that Jose Vieira changed over the last 30days?
+Can you list the 10 most recent changelists from Pierre Maury?
+Can you list the 10 most recent changelists from Aaron Packard?
+Can you list the 10 most recent changelists from Sean Fisher?
+
+
+List all Slack channels
+
+
+List all JIRA projects
+List all Confluence spaces
+

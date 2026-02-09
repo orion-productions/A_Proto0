@@ -38,7 +38,7 @@ export const api = {
   },
   
   // LLM with tool calling support
-  chatWithLLM: async (model, messages, provider = 'ollama', onChunk, onToolCall) => {
+  chatWithLLM: async (model, messages, provider = 'ollama', onChunk, onToolCall, ollamaSettings = {}) => {
     // Create AbortController for timeout handling
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout (for tool-heavy queries like Perforce)
@@ -49,7 +49,18 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model, messages, provider, enableTools: true }),
+        body: JSON.stringify({ 
+          model, 
+          messages, 
+          provider, 
+          enableTools: true,
+          // Pass Ollama advanced settings
+          thinking: ollamaSettings.thinking ?? false,
+          temperature: ollamaSettings.temperature ?? 0.1,
+          caching: ollamaSettings.caching ?? true,
+          tokensLimit: ollamaSettings.tokensLimit ?? 1536,
+          verboseLevel: ollamaSettings.verboseLevel ?? 1
+        }),
         signal: controller.signal,
       });
 
@@ -82,6 +93,8 @@ export const api = {
                 onToolCall({ type: 'result', tool: parsed.tool, result: parsed.result });
               } else if (parsed.type === 'final_response' && onToolCall) {
                 onToolCall({ type: 'final' });
+              } else if (parsed.type === 'internal_thinking' && onToolCall) {
+                onToolCall({ type: 'internal_thinking', thinking: parsed.thinking });
               } else if (parsed.content) {
                 fullResponse += parsed.content;
                 if (onChunk) onChunk(parsed.content);

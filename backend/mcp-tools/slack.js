@@ -8,54 +8,175 @@ const __dirname = path.dirname(__filename);
 
 // Slack API configuration
 const SLACK_BASE_URL = 'https://slack.com/api';
+const CREDENTIALS_PATH = path.join(__dirname, '../credentials/slack.env');
+
+// Slack credentials (supports both Bot tokens and OAuth 2.0 with rotation)
+let SLACK_ACCESS_TOKEN = '';
+let SLACK_REFRESH_TOKEN = '';
+let SLACK_BOT_TOKEN = '';
 
 // Load Slack credentials from file
-let SLACK_TOKEN = '';
+const loadCredentials = () => {
+  try {
+    if (fs.existsSync(CREDENTIALS_PATH)) {
+      const credentialsContent = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
+      const lines = credentialsContent.split('\n');
 
-try {
-  const credentialsPath = path.join(__dirname, '../credentials/slack.env');
-  if (fs.existsSync(credentialsPath)) {
-    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
-    const lines = credentialsContent.split('\n');
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (trimmedLine && !trimmedLine.startsWith('#')) {
-        const [key, ...valueParts] = trimmedLine.split('=');
-        const value = valueParts.join('=').trim();
-        if (key === 'SLACK_BOT_TOKEN') {
-          SLACK_TOKEN = value;
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+          const [key, ...valueParts] = trimmedLine.split('=');
+          const value = valueParts.join('=').trim();
+          if (key === 'SLACK_ACCESS_TOKEN') SLACK_ACCESS_TOKEN = value;
+          else if (key === 'SLACK_REFRESH_TOKEN') SLACK_REFRESH_TOKEN = value;
+          else if (key === 'SLACK_BOT_TOKEN') SLACK_BOT_TOKEN = value;
         }
       }
+      console.log('✅ Slack credentials loaded:', {
+        hasAccessToken: !!SLACK_ACCESS_TOKEN,
+        hasRefreshToken: !!SLACK_REFRESH_TOKEN,
+        hasBotToken: !!SLACK_BOT_TOKEN
+      });
     }
+  } catch (error) {
+    console.warn('⚠️ Warning: Could not load Slack credentials:', error.message);
   }
-} catch (error) {
-  console.warn('Warning: Could not load Slack credentials:', error.message);
-}
+};
 
-// Helper function for Slack API calls
-const slackApiCall = async (method, params = {}) => {
+// Save refreshed tokens back to file
+const saveRefreshedTokens = (newAccessToken, newRefreshToken) => {
+  try {
+    let content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
+    
+    // Update access token
+    content = content.replace(
+      /SLACK_ACCESS_TOKEN=.*/,
+      `SLACK_ACCESS_TOKEN=${newAccessToken}`
+    );
+    
+    // Update refresh token if provided
+    if (newRefreshToken) {
+      content = content.replace(
+        /SLACK_REFRESH_TOKEN=.*/,
+        `SLACK_REFRESH_TOKEN=${newRefreshToken}`
+      );
+    }
+    
+    fs.writeFileSync(CREDENTIALS_PATH, content, 'utf8');
+    console.log('✅ Slack tokens refreshed and saved');
+    
+    // Update in-memory tokens
+    SLACK_ACCESS_TOKEN = newAccessToken;
+    if (newRefreshToken) SLACK_REFRESH_TOKEN = newRefreshToken;
+  } catch (error) {
+    console.error('❌ Failed to save refreshed tokens:', error.message);
+  }
+};
+
+// Refresh access token using refresh token
+const refreshAccessToken = async () => {
+  if (!SLACK_REFRESH_TOKEN) {
+    console.error('❌ No refresh token available');
+    return false;
+  }
+  
+  try {
+    console.log('🔄 Refreshing Slack access token...');
+    
+    const response = await axios.post(
+      'https://slack.com/api/oauth.v2.access',
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: SLACK_REFRESH_TOKEN
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+    
+    if (response.data.ok) {
+      const newAccessToken = response.data.access_token;
+      const newRefreshToken = response.data.refresh_token || SLACK_REFRESH_TOKEN;
+      
+      saveRefreshedTokens(newAccessToken, newRefreshToken);
+      return true;
+    } else {
+      console.error('❌ Token refresh failed:', response.data.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Token refresh error:', error.message);
+    return false;
+  }
+};
+
+// Get current token (prefer access token, fallback to bot token)
+const getCurrentToken = () => {
+  return SLACK_ACCESS_TOKEN || SLACK_BOT_TOKEN;
+};
+
+// Helper function for Slack API calls with automatic token rotation
+const slackApiCall = async (method, params = {}, retryCount = 0) => {
+  const token = getCurrentToken();
+  
+  if (!token) {
+    return { error: 'No Slack token configured. Please set up slack.env credentials.' };
+  }
+  
   try {
     const response = await axios.post(
       `${SLACK_BASE_URL}/${method}`,
       params,
       {
         headers: {
-          'Authorization': `Bearer ${SLACK_TOKEN}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       }
     );
     
+    // Check for token expiration errors
     if (!response.data.ok) {
-      return { error: response.data.error || 'Slack API error' };
+      const error = response.data.error;
+      
+      // Token expired or invalid - try to refresh
+      if ((error === 'token_expired' || error === 'invalid_auth' || error === 'account_inactive') 
+          && SLACK_REFRESH_TOKEN && retryCount === 0) {
+        console.log('⚠️ Token expired, attempting refresh...');
+        
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          // Retry the request with new token
+          console.log('🔄 Retrying request with refreshed token...');
+          return await slackApiCall(method, params, retryCount + 1);
+        }
+      }
+      
+      return { error: error || 'Slack API error' };
     }
     
     return response.data;
   } catch (error) {
+    // HTTP 401 or 403 might indicate expired token
+    if ((error.response?.status === 401 || error.response?.status === 403) 
+        && SLACK_REFRESH_TOKEN && retryCount === 0) {
+      console.log('⚠️ Authentication error, attempting token refresh...');
+      
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        console.log('🔄 Retrying request with refreshed token...');
+        return await slackApiCall(method, params, retryCount + 1);
+      }
+    }
+    
     return { error: error.message };
   }
 };
+
+// Initialize credentials on module load
+loadCredentials();
 
 // Get list of channels
 const getSlackChannels = async () => {

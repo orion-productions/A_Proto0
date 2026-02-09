@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { Plus, MessageSquare, Trash2, Edit2, Check, X } from 'lucide-react';
 import useStore from '../store/useStore';
@@ -33,41 +33,144 @@ function LeftPanel() {
     setLocalScratchpadContent(scratchpadContent);
   }, [scratchpadContent]);
 
-  // Restore chat order from localStorage
+  // ALWAYS apply frontend order from localStorage - ignore backend order completely
+  const processedChatIds = useRef(null); // Track which set of chats we've already processed
+  const isApplyingOrder = useRef(false);
+  const lastRestoreTime = useRef(0); // Track when we last restored to prevent overwrites
+  
   useEffect(() => {
     try {
-      const savedOrder = localStorage.getItem('chatOrder');
-      if (savedOrder && chats.length > 0) {
-        const orderArray = JSON.parse(savedOrder);
-        // Sort chats based on saved order
-        const orderedChats = [...chats].sort((a, b) => {
-          const indexA = orderArray.indexOf(a.id);
-          const indexB = orderArray.indexOf(b.id);
-          // Put items not in saved order at the end
-          if (indexA === -1) return 1;
-          if (indexB === -1) return -1;
-          return indexA - indexB;
-        });
-        // Only update if order changed
-        if (JSON.stringify(orderedChats.map(c => c.id)) !== JSON.stringify(chats.map(c => c.id))) {
-          setChats(orderedChats);
+      if (chats.length === 0) {
+        processedChatIds.current = null;
+        return;
+      }
+      
+      // Skip if we're currently applying an order (prevent infinite loop)
+      if (isApplyingOrder.current) {
+        console.log('⏭️ Skipping: currently applying order');
+        return;
+      }
+      
+      if (isManuallyReordering.current) {
+        console.log('⏭️ Skipping: manually reordering');
+        return;
+      }
+      
+      // Get current chat IDs (sorted for comparison - same chats = same set)
+      const currentChatIds = chats.map(c => c.id).sort().join(',');
+      
+      // Skip if we've already processed this exact set of chats
+      // BUT: If we just restored (within last 500ms) and order doesn't match saved, restore again
+      const timeSinceLastRestore = Date.now() - lastRestoreTime.current;
+      const justRestored = timeSinceLastRestore < 500;
+      
+      if (processedChatIds.current === currentChatIds && !justRestored) {
+        console.log('⏭️ Skipping: already processed these chats');
+        return;
+      }
+      
+      // If we just restored but order is wrong, we need to restore again (App.jsx might have overwritten)
+      if (justRestored && processedChatIds.current === currentChatIds) {
+        const savedOrder = localStorage.getItem('chatOrder');
+        if (savedOrder) {
+          const savedOrderArray = JSON.parse(savedOrder);
+          const currentOrder = chats.map(c => c.id);
+          const orderMatches = currentOrder.length === savedOrderArray.length &&
+            currentOrder.every((id, index) => id === savedOrderArray[index]);
+          if (!orderMatches) {
+            console.log('⚠️ Order was overwritten after restore, re-restoring...');
+            // Fall through to restore logic below
+          } else {
+            console.log('⏭️ Skipping: order is correct after restore');
+            return;
+          }
         }
       }
+      
+      // Mark as processed BEFORE doing anything
+      processedChatIds.current = currentChatIds;
+      
+      // Get current order from backend
+      const currentOrder = chats.map(c => c.id);
+      
+      // Get saved order from localStorage
+      const savedOrder = localStorage.getItem('chatOrder');
+      
+      if (savedOrder) {
+        const savedOrderArray = JSON.parse(savedOrder);
+        
+        // Check if current order matches saved order
+        const orderMatches = currentOrder.length === savedOrderArray.length &&
+          currentOrder.every((id, index) => id === savedOrderArray[index]);
+        
+        if (!orderMatches) {
+          console.log('🔄 Applying saved order (ignoring backend order)');
+          console.log('📦 Saved order:', savedOrderArray);
+          console.log('📦 Backend order:', currentOrder);
+          
+          isApplyingOrder.current = true;
+          isRestoringOrder.current = true;
+          
+          // Reorder chats based on saved order (IGNORE backend order completely)
+          const orderedChats = [...chats].sort((a, b) => {
+            const indexA = savedOrderArray.indexOf(a.id);
+            const indexB = savedOrderArray.indexOf(b.id);
+            if (indexA === -1) return 1; // Not in saved order, put at end
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+          });
+          
+          const orderedChatIds = orderedChats.map(c => c.id).sort().join(',');
+          console.log('📦 Applied order:', orderedChats.map(c => c.id));
+          
+          // Update processed ref to the ordered chat IDs (so we don't process again)
+          processedChatIds.current = orderedChatIds;
+          
+          // Track when we restored
+          lastRestoreTime.current = Date.now();
+          
+          console.log('💾 Calling setChats with ordered chats:', orderedChats.map(c => c.id));
+          
+          // Update state
+          setChats(orderedChats);
+          
+          // Reset flags after state update
+          setTimeout(() => {
+            isApplyingOrder.current = false;
+            isRestoringOrder.current = false;
+          }, 150);
+        } else {
+          console.log('✅ Order already matches saved order');
+        }
+      } else {
+        // No saved order - save current backend order as initial
+        const initialOrder = chats.map(c => c.id);
+        localStorage.setItem('chatOrder', JSON.stringify(initialOrder));
+        console.log('💾 Saved initial order from backend:', initialOrder);
+      }
     } catch (error) {
-      console.error('Error restoring chat order:', error);
+      console.error('❌ Error applying chat order:', error);
+      isApplyingOrder.current = false;
+      isRestoringOrder.current = false;
     }
-  }, [chats.length]); // Only run when chat count changes
+  }, [chats, setChats]);
 
   const [editingChatId, setEditingChatId] = useState(null);
   const [localScratchpadContent, setLocalScratchpadContent] = useState('');
   const [editingTitle, setEditingTitle] = useState('');
   const [draggedChatId, setDraggedChatId] = useState(null);
   const [dragOverChatId, setDragOverChatId] = useState(null);
+  const lastProcessedChatIds = useRef(null);
+  const isRestoringOrder = useRef(false);
+  const isManuallyReordering = useRef(false);
 
   const handleNewChat = async () => {
     try {
       const newChat = await api.createChat(t('new.chat'));
-      setChats([newChat, ...chats]);
+      const updatedChats = [newChat, ...chats];
+      // Update ref BEFORE setChats to prevent restore effect
+      lastProcessedChatIds.current = JSON.stringify(updatedChats.map(c => c.id));
+      setChats(updatedChats);
       setCurrentChatId(newChat.id);
       setMessages([]);
     } catch (error) {
@@ -89,7 +192,10 @@ function LeftPanel() {
     e.stopPropagation();
     try {
       await api.deleteChat(chatId);
-      setChats(chats.filter(c => c.id !== chatId));
+      const updatedChats = chats.filter(c => c.id !== chatId);
+      // Update ref BEFORE setChats to prevent restore effect
+      lastProcessedChatIds.current = JSON.stringify(updatedChats.map(c => c.id));
+      setChats(updatedChats);
       if (currentChatId === chatId) {
         setCurrentChatId(null);
         setMessages([]);
@@ -141,12 +247,18 @@ function LeftPanel() {
     e.dataTransfer.effectAllowed = 'move';
     // Add a semi-transparent effect
     e.currentTarget.style.opacity = '0.5';
+    // Set flag to prevent restore effect from running during drag & drop
+    isManuallyReordering.current = true;
   };
 
   const handleDragEnd = (e) => {
     e.currentTarget.style.opacity = '1';
     setDraggedChatId(null);
     setDragOverChatId(null);
+    // Reset flag after a short delay to allow handleDrop to complete
+    setTimeout(() => {
+      isManuallyReordering.current = false;
+    }, 100);
   };
 
   const handleDragOver = (chatId, e) => {
@@ -182,17 +294,41 @@ function LeftPanel() {
     const [draggedChat] = newChats.splice(draggedIndex, 1);
     newChats.splice(targetIndex, 0, draggedChat);
 
+    // Check if order actually changed before saving
+    const chatOrder = newChats.map(c => c.id);
+    const currentOrder = chats.map(c => c.id);
+    const orderChanged = JSON.stringify(chatOrder) !== JSON.stringify(currentOrder);
+    
+    if (orderChanged) {
+      // Save the order to localStorage (ONLY place where order is saved)
+      const orderStr = JSON.stringify(chatOrder);
+      try {
+        localStorage.setItem('chatOrder', orderStr);
+        // Verify it was saved
+        const verified = localStorage.getItem('chatOrder');
+        if (verified === orderStr) {
+          console.log('✅ Chat order saved and verified:', chatOrder);
+        } else {
+          console.error('❌ Chat order save failed - verification mismatch!');
+        }
+      } catch (error) {
+        console.error('❌ Error saving chat order:', error);
+      }
+      
+      // Update ref BEFORE setting chats to prevent restore effect from running
+      lastProcessedChatIds.current = orderStr;
+    } else {
+      console.log('⏭️ Order unchanged, skipping save');
+    }
+    
     // Update state
     setChats(newChats);
     setDragOverChatId(null);
     
-    // Persist the order to localStorage
-    try {
-      const chatOrder = newChats.map(c => c.id);
-      localStorage.setItem('chatOrder', JSON.stringify(chatOrder));
-    } catch (error) {
-      console.error('Error saving chat order:', error);
-    }
+    // Reset flag after state update completes
+    setTimeout(() => {
+      isManuallyReordering.current = false;
+    }, 50);
   };
 
   return (

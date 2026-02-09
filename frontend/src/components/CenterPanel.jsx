@@ -16,6 +16,12 @@ function CenterPanel() {
     speakerEnabled,
     selectedLanguage,
     voiceGender,
+    ollamaThinking,
+    ollamaTemperature,
+    ollamaCaching,
+    showInternalReasoning,
+    tokensLimit,
+    verboseLevel,
     setMessages,
     setIsLoading,
     addMessage
@@ -157,13 +163,16 @@ function CenterPanel() {
 
       // Get AI response
       let assistantResponse = '';
+      let internalThinking = ''; // Store internal thinking separately
       const chatMessages = [...messages, { role: 'user', content: userMessage }];
       
       // Create temporary assistant message with typing indicator
+      // Dynamic message based on Thinking Mode setting
+      const loadingMessage = ollamaThinking ? '💭 Thinking...' : '⏳ Processing...';
       const tempAssistantMsg = {
         id: 'temp',
         role: 'assistant',
-        content: t('thinking'),
+        content: loadingMessage,
         isTyping: true,
         timestamp: Date.now()
       };
@@ -312,17 +321,34 @@ function CenterPanel() {
           } else if (toolEvent.type === 'final') {
             // Reset for final response
             assistantResponse = '';
+            const finalMessage = ollamaThinking ? '💭 Formulating answer...' : '💬 Generating response...';
             setMessages(
-              currentMessages.map(m => m.id === 'temp' ? { ...m, content: '💬 Generating response...', isTyping: true } : m)
+              currentMessages.map(m => m.id === 'temp' ? { ...m, content: finalMessage, isTyping: true } : m)
             );
             // Clear all active tools
             clearAllActiveTools();
+          } else if (toolEvent.type === 'internal_thinking') {
+            // Store internal thinking (from Ollama's thinking field)
+            internalThinking = toolEvent.thinking;
+            console.log('💭 Internal thinking captured:', internalThinking.substring(0, 100) + '...');
           }
+        },
+        {
+          thinking: ollamaThinking,
+          temperature: ollamaTemperature,
+          caching: ollamaCaching,
+          tokensLimit: tokensLimit,
+          verboseLevel: verboseLevel
         }
       );
 
       // Save assistant message
       const assistantMsg = await api.addMessage(currentChatId, 'assistant', assistantResponse);
+      
+      // Add internal thinking to the message if it exists
+      if (internalThinking) {
+        assistantMsg.internalThinking = internalThinking;
+      }
       
       // Replace temp message with real one
       const currentMessages = useStore.getState().messages;
@@ -403,7 +429,17 @@ function CenterPanel() {
                       <span className="text-gray-300 animate-pulse">{message.content}</span>
                     </div>
                   ) : (
-                    <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                    <>
+                      {/* Show internal thinking if enabled and available */}
+                      {showInternalReasoning && message.internalThinking && message.role === 'assistant' && (
+                        <div className="text-gray-400 italic text-sm mb-3 pb-3 border-b border-gray-600">
+                          <div className="font-semibold mb-1">💭 Internal Reasoning:</div>
+                          <div className="whitespace-pre-wrap break-words">{message.internalThinking}</div>
+                        </div>
+                      )}
+                      {/* Main message content */}
+                      <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                    </>
                   )}
                 </div>
               </div>

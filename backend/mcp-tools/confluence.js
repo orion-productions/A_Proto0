@@ -1,9 +1,38 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Confluence API configuration
-const CONFLUENCE_BASE_URL = process.env.CONFLUENCE_BASE_URL || '';
-const CONFLUENCE_EMAIL = process.env.CONFLUENCE_EMAIL || '';
-const CONFLUENCE_API_TOKEN = process.env.CONFLUENCE_API_TOKEN || '';
+let CONFLUENCE_BASE_URL = '';
+let CONFLUENCE_EMAIL = '';
+let CONFLUENCE_API_TOKEN = '';
+
+// Load Confluence credentials from file
+try {
+  const credentialsPath = path.join(__dirname, '../credentials/confluence.env');
+  if (fs.existsSync(credentialsPath)) {
+    const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+    const lines = credentialsContent.split('\n');
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        const value = valueParts.join('=').trim();
+        if (key === 'CONFLUENCE_BASE_URL') CONFLUENCE_BASE_URL = value;
+        else if (key === 'CONFLUENCE_EMAIL') CONFLUENCE_EMAIL = value;
+        else if (key === 'CONFLUENCE_API_TOKEN') CONFLUENCE_API_TOKEN = value;
+      }
+    }
+    console.log('✅ Confluence credentials loaded');
+  }
+} catch (error) {
+  console.warn('⚠️ Warning: Could not load Confluence credentials:', error.message);
+}
 
 // Helper function for Confluence API calls
 const confluenceApiCall = async (endpoint, method = 'GET', data = null) => {

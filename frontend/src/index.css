@@ -45,7 +45,6 @@ body {
   background: #6b7280;
 }
 
-
 /* Blinking animation for active tools */
 @keyframes blink {
   0%, 49% {

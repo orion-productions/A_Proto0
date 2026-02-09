@@ -34,6 +34,14 @@ const useStore = create((set, get) => ({
   // Voice gender preference (persisted)
   voiceGender: localStorage.getItem('voiceGender') || 'feminine', // 'feminine' or 'masculine'
   
+  // Ollama advanced settings (persisted)
+  ollamaThinking: localStorage.getItem('ollamaThinking') === 'true' || false, // Enable reasoning mode (default: false)
+  ollamaTemperature: parseFloat(localStorage.getItem('ollamaTemperature') || '0.1'), // 0.0 - 2.0 (default: 0.1 for tool calling)
+  ollamaCaching: localStorage.getItem('ollamaCaching') !== 'false', // true by default
+  showInternalReasoning: localStorage.getItem('showInternalReasoning') === 'true' || false, // Show Ollama's thinking field
+  tokensLimit: parseInt(localStorage.getItem('tokensLimit') || '1536', 10), // 512, 1024, 1536, or 2048
+  verboseLevel: parseInt(localStorage.getItem('verboseLevel') || '1', 10), // 0=Fast, 1=Balanced, 2=Quality, 3=Precise
+  
   // Settings window position and size (persisted)
   settingsWindowPosition: JSON.parse(localStorage.getItem('settingsWindowPosition') || '{"x": 0, "y": 0}'),
   settingsWindowSize: JSON.parse(localStorage.getItem('settingsWindowSize') || '{"width": 672, "height": 600}'),
@@ -140,6 +148,36 @@ const useStore = create((set, get) => ({
   setVoiceGender: (gender) => {
     localStorage.setItem('voiceGender', gender);
     set({ voiceGender: gender });
+  },
+  
+  setOllamaThinking: (enabled) => {
+    localStorage.setItem('ollamaThinking', String(enabled));
+    set({ ollamaThinking: enabled });
+  },
+  
+  setOllamaTemperature: (temp) => {
+    localStorage.setItem('ollamaTemperature', String(temp));
+    set({ ollamaTemperature: temp });
+  },
+  
+  setOllamaCaching: (enabled) => {
+    localStorage.setItem('ollamaCaching', String(enabled));
+    set({ ollamaCaching: enabled });
+  },
+  
+  setShowInternalReasoning: (enabled) => {
+    localStorage.setItem('showInternalReasoning', String(enabled));
+    set({ showInternalReasoning: enabled });
+  },
+  
+  setTokensLimit: (limit) => {
+    localStorage.setItem('tokensLimit', String(limit));
+    set({ tokensLimit: limit });
+  },
+  
+  setVerboseLevel: (level) => {
+    localStorage.setItem('verboseLevel', String(level));
+    set({ verboseLevel: level });
   },
   
   setSettingsWindowPosition: (position) => {

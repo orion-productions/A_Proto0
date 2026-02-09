@@ -177,7 +177,7 @@ async function executeTool(toolName, params) {
       case 'get_perforce_file_info':
         return await mcpTools.getPerforceFileInfo(params.filePath);
       case 'list_perforce_files':
-        return await mcpTools.listPerforceFiles(params.path, params.limit);
+        return await mcpTools.listPerforceFiles(params.path || params.directory, params.limit);
       case 'list_perforce_directories':
         return await mcpTools.listPerforceDirectories(params.path);
       case 'get_perforce_file_content':
@@ -575,7 +575,20 @@ app.post('/api/chats/:id/messages', (req, res) => {
 
 // LLM integration with tool calling support
 app.post('/api/llm/chat', async (req, res) => {
-  const { model, messages, provider = 'ollama', enableTools = true } = req.body;
+  const { 
+    model, 
+    messages, 
+    provider = 'ollama', 
+    enableTools = true,
+    // Ollama advanced settings
+    thinking = false,
+    temperature = 0.1,
+    caching = true,
+    tokensLimit = 1536,
+    verboseLevel = 1  // 0=Fast, 1=Balanced, 2=Quality, 3=Precise
+  } = req.body;
+  
+  console.log('🎛️ Ollama Settings:', { thinking, temperature, caching, tokensLimit, verboseLevel });
   
   try {
     if (provider === 'ollama') {
@@ -586,6 +599,8 @@ app.post('/api/llm/chat', async (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       
+      // IMPORTANT: For tool-calling queries, ONLY use the CURRENT user message, NOT conversation history
+      // This prevents the model from "reusing" previous tool results instead of calling tools fresh
       let conversationMessages = [...messages];
       let toolCallsDetected = false;
       let lastToolResult = null;
@@ -601,7 +616,13 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsJiraTool = /jira|issue|project|ticket|bug|story|epic/i.test(lastUserMessage);
       const needsSlackTool = /slack|channel|message|workspace|thread/i.test(lastUserMessage);
       const needsGithubTool = /github|git|repository|repo|pull request|pr|issue|commit/i.test(lastUserMessage);
-      const needsPerforceTool = /perforce|p4|changelist|depot|workspace|client|(jose|pierre|aaron|kieran|yurie|kenan|denis|unseen).*(changed?|modified?|files?|commit)|(changed?|modified?|files?).*by.*(jose|pierre|aaron)/i.test(lastUserMessage);
+      // Perforce detection: explicit keywords OR "changelist(s) from/by [Name]" pattern OR specific changelist number queries
+      const needsPerforceTool = /perforce|p4|depot|workspace|client/i.test(lastUserMessage) ||
+        /changelist(s)?\s+(from|by|for|of)\s+[A-Z][a-z]+/i.test(lastUserMessage) ||
+        /changelist\s+(number|#|details?|info|information)\s*(#)?\d+/i.test(lastUserMessage) ||
+        /(details?|info|information|show|get|tell).*changelist\s*(#)?\d+/i.test(lastUserMessage) ||
+        /(jose|pierre|aaron|kieran|yurie|kenan|denis|unseen|sean|fisher).*(changed?|modified?|files?|commit)/i.test(lastUserMessage) ||
+        /(changed?|modified?|files?).*by.*(jose|pierre|aaron|sean|fisher)/i.test(lastUserMessage);
       const needsConfluenceTool = /confluence|page|space|wiki|documentation/i.test(lastUserMessage);
       const needsGmailTool = /gmail|email|mail|message|inbox|unread|sent/i.test(lastUserMessage);
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
@@ -622,6 +643,20 @@ app.post('/api/llm/chat', async (req, res) => {
       
       console.log('User message:', lastUserMessage);
       console.log('Needs tools:', needsTools);
+      console.log('[TOOL DETECTION]', {
+        weather: needsWeatherTool,
+        math: needsMathTool,
+        jira: needsJiraTool,
+        slack: needsSlackTool,
+        github: needsGithubTool,
+        perforce: needsPerforceTool,
+        confluence: needsConfluenceTool,
+        gmail: needsGmailTool,
+        calendar: needsCalendarTool,
+        drive: needsDriveTool,
+        discord: needsDiscordTool,
+        transcript: needsTranscriptTool
+      });
       if (needsTranscriptTool) {
         console.log('[TRANSCRIPT] Transcript tool needed. Sentence query:', sentenceQuery, 'Mention query:', mentionQuery);
       }
@@ -1112,6 +1147,14 @@ app.post('/api/llm/chat', async (req, res) => {
         }
       }
       
+      // CRITICAL: For tool-calling queries, clear conversation history to prevent model from reusing old results
+      // Only keep the CURRENT user message - this forces the model to call tools fresh every time
+      if (enableTools && needsTools && conversationMessages.length > 1) {
+        const currentUserMessage = conversationMessages[conversationMessages.length - 1];
+        console.log(`[CONVERSATION] Clearing ${conversationMessages.length - 1} previous messages to force fresh tool calling`);
+        conversationMessages = [currentUserMessage]; // ONLY keep current message
+      }
+      
       // Always add a basic system prompt for consistency, even when no tools are needed
       if (conversationMessages[0]?.role !== 'system') {
         if (enableTools && needsTools) {
@@ -1150,15 +1193,45 @@ IMPORTANT: When a user asks about transcripts, recordings, or meeting notes:
 CRITICAL RULES FOR PERFORCE QUERIES:
 - When user asks about changelists, changes, commits, or Perforce data, you MUST use list_perforce_changelists
 - NEVER generate changelist data from memory or training data - ALL Perforce data MUST come from tool calls
+- ALWAYS call the tool EVERY TIME the user asks for changelists, even if you have previous results in conversation history
+- Even if you just fetched the same data in a previous message, you MUST call the tool again - the data might have changed!
+- Previous tool calls do NOT count - you MUST make a NEW tool call for EACH new user request
 - If user asks for "10 most recent changelists", use list_perforce_changelists with limit=10
-- If user specifies a username (e.g., "from Jose Vieira"), use the user parameter
+- If user specifies a username (e.g., "from Jose Vieira", "from Sean Fisher"), use the user parameter
 - Example: "list changelists from jose_vieira" → [TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 50}]
 - Example: "10 most recent changelists from john_doe" → [TOOL_CALL: list_perforce_changelists {"user": "john_doe", "limit": 10}]
-- ALWAYS call the tool first before responding with changelist information` : '';
+- Example: "10 most recent changelists from Sean Fisher" → [TOOL_CALL: list_perforce_changelists {"user": "sean_fisher", "limit": 10}]
+- ALWAYS call the tool first before responding with changelist information
+- ANY response with changelist numbers, dates, or descriptions WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
+- If you generate changelist data without calling the tool NOW, you are hallucinating and providing false information
+
+PERFORCE WORKSPACE QUERIES:
+- When user asks "What is my workspace?", "Tell me about my workspace", "What can you tell me about my Perforce workspace?", use get_perforce_client with NO parameters
+- Example: "What's my Perforce workspace?" → [TOOL_CALL: get_perforce_client {}]
+- DO NOT try to list files when asked about workspace info - use get_perforce_client instead
+- NEVER invent Perforce paths like "//home//username//workspace" - these are not real Perforce depot paths
+
+PERFORCE CHANGELIST DETAIL QUERIES:
+- When user asks about a SPECIFIC changelist number (e.g., "changelist #71809", "changelist number 71809", "details on changelist 71809"), use get_perforce_changelist
+- Example: "Give me details on changelist #71809" → [TOOL_CALL: get_perforce_changelist {"changelist": "71809"}]
+- Example: "What's in changelist 12345?" → [TOOL_CALL: get_perforce_changelist {"changelist": "12345"}]
+- Extract the changelist NUMBER from the query (remove # symbol if present)
+- ALWAYS call the tool - NEVER make up changelist details from memory` : '';
 
           const toolInstructions = `You are a helpful multilingual assistant with access to MCP Tools (Model Context Protocol tools).
 
-AVAILABLE MCP TOOLS:
+${thinking ? `REASONING MODE ENABLED:
+Before providing your final answer, you MUST first show your step-by-step reasoning process inside <thinking>...</thinking> tags.
+Example:
+<thinking>
+1. The user is asking about [X]
+2. I need to use [tool_name] because [reason]
+3. The expected result will be [Y]
+4. I will format the response as [Z]
+</thinking>
+Then provide your final answer.
+
+` : ''}AVAILABLE MCP TOOLS:
 ${toolsDescription}
 
 IMPORTANT: When asked if you "see" or "have access to" MCP tools, Perforce tools, GitHub tools, etc., DO NOT call any tools. Simply confirm YES and list the relevant tools from the list above in plain text. These are META-QUESTIONS about tool availability, not requests to USE the tools.
@@ -1191,6 +1264,11 @@ For example:
 [TOOL_CALL: get_github_issue {"owner": "owner", "repo": "repo", "issueNumber": 1}]
 [TOOL_CALL: calculator {"expression": "5+3"}]
 [TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 10}]
+[TOOL_CALL: list_perforce_changelists {"user": "sean_fisher", "limit": 10}]
+[TOOL_CALL: get_perforce_changelist {"changelist": "71809"}]
+[TOOL_CALL: list_perforce_directories {"path": "//Unseen/Main/"}]
+[TOOL_CALL: list_perforce_directories {}]
+[TOOL_CALL: list_perforce_files {"path": "//Unseen/Main/Source/"}]
 ${transcriptExamples}${transcriptRules}${perforceRules}
 
 After using a tool, you'll receive the result and should provide a natural language response to the user IN THEIR LANGUAGE.`;
@@ -1204,9 +1282,11 @@ After using a tool, you'll receive the result and should provide a natural langu
           });
         } else {
           // Add a basic system prompt for general knowledge questions
+          const basePrompt = 'You are a helpful AI assistant. Answer questions directly and provide accurate information.';
+          const thinkingPrompt = thinking ? '\n\nREASONING MODE: Before your final answer, show your reasoning in <thinking>...</thinking> tags.' : '';
           conversationMessages.unshift({
             role: 'system',
-            content: 'You are a helpful AI assistant. Answer questions directly and provide accurate information.'
+            content: basePrompt + thinkingPrompt
           });
         }
       }
@@ -1261,22 +1341,44 @@ After using a tool, you'll receive the result and should provide a natural langu
       while (maxIterations > 0) {
         maxIterations--;
         
+        // Verbose level presets (0=Fast, 1=Balanced, 2=Quality, 3=Precise)
+        const verbosePresets = {
+          0: { top_p: 0.95, top_k: 40, repeat_penalty: 1.05 },  // Fast
+          1: { top_p: 0.90, top_k: 50, repeat_penalty: 1.08 },  // Balanced (default) - more careful than before
+          2: { top_p: 0.85, top_k: 70, repeat_penalty: 1.10 },  // Quality
+          3: { top_p: 0.80, top_k: undefined, repeat_penalty: 1.12 }  // Precise (no top_k limit)
+        };
+        const verboseConfig = verbosePresets[verboseLevel] || verbosePresets[1];
+        
         const requestBody = {
           model: model || process.env.DEFAULT_MODEL || 'qwen2.5:1.5b',
           messages: conversationMessages,
           stream: false,
           options: {
-            temperature: 0.3,  // Lower temperature for faster, more focused responses
-            num_predict: toolsAlreadyExecuted ? 512 : 2048, // MUCH smaller limit after tools executed (just formatting)
-            top_p: 0.9,        // Nucleus sampling for better quality
-            repeat_penalty: 1.1 // Slight penalty to avoid repetitive thinking
+            temperature: temperature,  // User-configurable (default: 0.3)
+            num_predict: toolsAlreadyExecuted ? tokensLimit : 2048, // User-configurable limit after tools executed
+            top_p: verboseConfig.top_p,
+            ...(verboseConfig.top_k !== undefined && { top_k: verboseConfig.top_k }),
+            repeat_penalty: verboseConfig.repeat_penalty,
+            // Performance optimization for large models
+            ...(model && model.includes('30b') ? {
+              num_batch: 512,  // Larger batch size for 30b models
+              num_gpu: 99      // Force all layers on GPU
+            } : {})
           }
         };
         
+        // Apply caching setting via keep_alive parameter
+        if (caching === false) {
+          requestBody.keep_alive = 0; // Unload immediately after response
+        } else {
+          requestBody.keep_alive = '30m'; // Keep loaded for 30 minutes (default)
+        }
+        
         // Only add tools on the FIRST iteration - after tools are executed, we don't need them for formatting the response
-        // For small models (< 3B params), skip native tool calling and rely on manual [TOOL_CALL: ...] format
-        const isSmallModel = model && (model.includes('1.5b') || model.includes('1b'));
-        const useNativeToolCalling = !isSmallModel; // Only use native tools for larger models
+        // For models < 14B params, skip native tool calling and rely on manual [TOOL_CALL: ...] format
+        const isSmallModel = model && (model.includes('1.5b') || model.includes('1b') || model.includes('7b'));
+        const useNativeToolCalling = !isSmallModel; // Only use native tools for larger models (14b+)
         
         if (enableTools && needsTools && !toolsAlreadyExecuted) {
           if (useNativeToolCalling) {
@@ -1371,12 +1473,43 @@ After using a tool, you'll receive the result and should provide a natural langu
         
         // Check for manual tool call format (fallback for models without native support)
         const content = assistantMessage.content || '';
-        const toolCallMatch = content.match(/\[TOOL_CALL:\s*(\w+)\s*({.*?})\]/);
+        // More flexible regex: match [TOOL_CALL: toolname {json}] or [TOOL_CALL: toolname {json})
+        const toolCallMatch = content.match(/\[TOOL_CALL:\s*([\w_]+)\s*({.*?})\s*[\]\)]/s);
         
         if (toolCallMatch && enableTools) {
           toolCallsDetected = true;
           const toolName = toolCallMatch[1];
-          const toolParams = JSON.parse(toolCallMatch[2]);
+          let toolParams;
+          
+          try {
+            toolParams = JSON.parse(toolCallMatch[2]);
+          } catch (parseError) {
+            // Try to fix common JSON errors: missing property names, unquoted strings
+            let jsonStr = toolCallMatch[2];
+            
+            // Fix: {"value"} -> {"path": "value"} or {"value": "value"} depending on context
+            // Common pattern: {"//path/"} should become {"path": "//path/"}
+            const singleValueMatch = jsonStr.match(/^{"([^"]+)"}$/);
+            if (singleValueMatch) {
+              // Try to infer parameter name based on tool name
+              const inferredParam = toolName.includes('directory') || toolName.includes('directories') ? 'path' :
+                                   toolName.includes('file') ? 'filePath' :
+                                   toolName.includes('changelist') ? 'changelist' :
+                                   toolName.includes('user') ? 'user' : 'value';
+              jsonStr = `{"${inferredParam}": "${singleValueMatch[1]}"}`;
+              console.log(`[TOOL_CALL] Fixed malformed JSON: ${toolCallMatch[2]} -> ${jsonStr}`);
+            }
+            
+            try {
+              toolParams = JSON.parse(jsonStr);
+            } catch (retryError) {
+              console.error(`[TOOL_CALL] JSON parse error for tool ${toolName}:`, parseError.message);
+              console.error(`[TOOL_CALL] Original JSON: ${toolCallMatch[2]}`);
+              console.error(`[TOOL_CALL] Fixed JSON: ${jsonStr}`);
+              // Continue to next iteration - don't execute tool with invalid params
+              continue;
+            }
+          }
           
           // Send tool call info to frontend
           res.write(`data: ${JSON.stringify({ 
@@ -1422,7 +1555,26 @@ After using a tool, you'll receive the result and should provide a natural langu
           }
           
           // Stream the final content
-          const content = assistantMessage.content;
+          // BUGFIX: Some models (qwen3:30b) put their response in the 'thinking' field instead of 'content'
+          // Check both fields and use whichever has actual content (not just empty/whitespace)
+          const contentText = (assistantMessage.content || '').trim();
+          const thinkingText = (assistantMessage.thinking || '').trim();
+          const hasInternalThinking = thinkingText.length > 0;
+          
+          // If there's internal thinking, send it as a separate event so frontend can style it differently
+          if (hasInternalThinking) {
+            res.write(`data: ${JSON.stringify({ type: 'internal_thinking', thinking: thinkingText })}\n\n`);
+          }
+          
+          // Determine which content to use: prioritize actual content, fall back to thinking
+          let content = contentText || thinkingText || '';
+          
+          if (!content && toolCallsDetected) {
+            // If still empty after tool execution, generate a fallback message
+            content = 'Tools were executed successfully, but the model returned an empty response.';
+            console.warn('⚠️ Empty response after tool execution. assistantMessage:', JSON.stringify(assistantMessage, null, 2));
+          }
+          
           const chunkSize = 5; // Characters per chunk
           for (let i = 0; i < content.length; i += chunkSize) {
             const chunk = content.slice(i, i + chunkSize);

@@ -24,7 +24,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
   - Quick language switching (EN, FR, ES, DE, JA, ZH)
 - 📝 **Chat Management**: 
   - Create, save, and manage multiple chat sessions
-  - **Drag-and-drop reordering**: Click and drag chats to reorder them (persisted to localStorage)
+  - **Drag-and-drop reordering**: Click and drag chats to reorder them (order persisted to localStorage and restored on page refresh)
   - Language-dependent chat names
 - 📋 **Scratchpad**: File-based persistent note-taking area (auto-saves to `scratchpad.txt`, survives browser clearing and session changes)
 - 🎙️ **Audio Recording & Transcription**:
@@ -171,10 +171,18 @@ Current test coverage includes:
     - "List recent messages in #general channel"
     - "What are the open issues in [repo]?"
 16. **Scratchpad**: Write notes in the bottom-left section (auto-saves to file, persists across sessions)
-17. **Settings**: Click the settings icon to configure models and API keys
+17. **Settings**: Click the settings icon to configure the application
+    - **Two-Tab Interface**:
+      - **User Interface Tab**: Show Internal Reasoning, Font Scale Factor, Voice Gender, About
+      - **LLM Settings Tab**: Model selection, Temperature, Tokens Limit, Caching, Thinking Mode, Ollama Connection, API Keys
     - **Intelligent Model Sorting**: Models are sorted by default (first), usage count (most used), then alphabetically
     - **Usage Tracking**: See how many times you've used each model (e.g., "qwen2.5:7b (15 uses)")
-    - Model selection is persisted across sessions
+    - **Temperature Control**: Adjust creativity from 0.0 (deterministic) to 2.0 (maximum randomness), default 0.3
+    - **Tokens Limit**: Configure response length (512/1024/1536/2048 tokens), default 1536 (recommended)
+    - **Show Internal Reasoning**: Display the LLM's internal thought process in light grey (for debugging)
+    - **Thinking Mode**: Enable step-by-step reasoning visibility (increases response time)
+    - **Caching**: Keep model in memory for faster responses (uses more RAM/VRAM)
+    - All settings are persisted across sessions
 18. **Font Scale Factor**:
     - Open Settings and adjust the "Font Scale Factor" slider (1.0x to 5.0x)
     - Changes apply immediately to all text in the application
@@ -217,7 +225,14 @@ When using qwen2.5:7b (recommended) with aggressive tool filtering:
   - Detects: "Jose changed files", "files by Pierre", "Aaron's commits" → Perforce tools
   - Handles multilingual queries (English, French, Japanese, etc.)
 - **Fast Decision-Making**: LLM can identify the right tool in seconds, not minutes
-- **Post-Tool Token Limiting**: Reduces "thinking" tokens (512 vs 2048) when formatting tool results
+- **User-Configurable Token Limits**: Control response length (512/1024/1536/2048 tokens)
+  - 512: Fast but may cut off complex responses
+  - 1024: Balanced
+  - 1536: Recommended (default) - handles 10-15 changelists comfortably
+  - 2048: Maximum completeness, slower
+- **Two-Phase Token Strategy**: 
+  - Tool selection phase: 2048 tokens (deciding which tool)
+  - Post-tool formatting phase: User-configurable (formatting result)
 - **Small Model Support**: qwen2.5:1.5b uses manual tool format for better reliability
 
 The backend automatically filters tools and adjusts timeouts based on query type.

@@ -301,15 +301,18 @@ const getPerforceFileInfo = async (filePath) => {
 
 // List files in a directory
 const listPerforceFiles = async (path, limit = 100) => {
-  const result = await executeP4Command('files', [`${path}/...`]);
+  // Strip trailing slashes to avoid double slashes (e.g., //Unseen/Main/ becomes //Unseen/Main)
+  const cleanPath = path?.replace(/\/+$/, '') || '';
+  
+  // Use Perforce's -m flag to limit results at the server level (prevents buffer overflow)
+  const result = await executeP4Command('files', [`-m${limit}`, `${cleanPath}/...`]);
   
   if (result.error) return result;
   
   const files = [];
   const lines = result.output.split('\n').filter(l => l.trim());
   
-  for (let i = 0; i < Math.min(lines.length, limit); i++) {
-    const line = lines[i];
+  for (const line of lines) {
     const match = line.match(/^(.+?) - (.+?) change (\d+) \((.+?)\)$/);
     if (match) {
       files.push({
@@ -321,7 +324,7 @@ const listPerforceFiles = async (path, limit = 100) => {
     }
   }
   
-  return { files, total: lines.length };
+  return { files, total: files.length, limited: files.length >= limit };
 };
 
 // List directories in a path
@@ -508,7 +511,7 @@ export default {
       type: 'function',
       function: {
         name: 'list_perforce_files',
-        description: 'List FILES (not directories) in a specific Perforce directory. Use list_perforce_directories first to explore depot structure, then use this to see files in a specific path.',
+        description: 'List FILES (not directories) in a specific Perforce directory. Large directories are automatically limited to prevent buffer overflow. Use list_perforce_directories first to explore depot structure, then use this to see files in a specific path.',
         parameters: {
           type: 'object',
           properties: {

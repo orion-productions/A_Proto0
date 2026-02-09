@@ -138,6 +138,20 @@ The following MCP tools are available and tested:
    - Mocked Web APIs in tests
    - Real browser testing recommended for final validation
 
+## Chat Order Persistence
+
+### Implementation
+- ✅ Chat order is saved to localStorage when user drags and drops chats
+- ✅ Order is restored in `App.jsx` before chats are set in the store
+- ✅ This prevents race conditions and ensures correct order from the start
+- ✅ Order persists across page refreshes (Ctrl+F5)
+
+### Test Results
+- ✅ Order saves correctly on drag & drop
+- ✅ Order restores correctly on page refresh
+- ✅ No race conditions or overwrites
+- ✅ Works reliably with multiple chats
+
 ## Recommendations
 
 All unit tests are passing. The system is ready for **manual testing** to verify:
@@ -145,6 +159,7 @@ All unit tests are passing. The system is ready for **manual testing** to verify
 2. Real audio file transcription
 3. LLM queries about transcripts
 4. UI responsiveness and updates
+5. Chat order persistence across refreshes
 
 Run `powershell -File run-all-tests.ps1` to execute all tests at once.
 

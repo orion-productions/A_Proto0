@@ -29,9 +29,14 @@ try {
         }
       }
     }
+    console.log('✅ JIRA credentials loaded:', {
+      baseUrl: JIRA_BASE_URL,
+      email: JIRA_EMAIL,
+      hasToken: !!JIRA_API_TOKEN
+    });
   }
 } catch (error) {
-  console.warn('Warning: Could not load JIRA credentials:', error.message);
+  console.warn('⚠️ Warning: Could not load JIRA credentials:', error.message);
 }
 
 // Helper function for Jira API calls
@@ -57,8 +62,16 @@ const jiraApiCall = async (endpoint, method = 'GET', data = null) => {
     const response = await axios(config);
     return response.data;
   } catch (error) {
+    const errorMsg = error.response?.data?.errorMessages?.join(', ') || 
+                     error.response?.data?.message || 
+                     error.message;
+    console.error('❌ JIRA API Error:', {
+      endpoint,
+      status: error.response?.status,
+      error: errorMsg
+    });
     return { 
-      error: error.response?.data?.errorMessages?.join(', ') || error.message 
+      error: errorMsg
     };
   }
 };
@@ -131,7 +144,15 @@ const getJiraProject = async (projectKey) => {
 
 // Get Jira projects list
 const getJiraProjects = async () => {
+  console.log('🔍 Fetching JIRA projects from:', `${JIRA_BASE_URL}/rest/api/3/project`);
   const result = await jiraApiCall('project');
+  
+  console.log('📊 JIRA projects API response:', {
+    hasError: !!result.error,
+    isArray: Array.isArray(result),
+    count: Array.isArray(result) ? result.length : 0,
+    sample: Array.isArray(result) && result.length > 0 ? result[0] : null
+  });
   
   if (result.error) return result;
   
