@@ -24,7 +24,8 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
   - Quick language switching (EN, FR, ES, DE, JA, ZH)
 - 📝 **Chat Management**: 
   - Create, save, and manage multiple chat sessions
-  - **Drag-and-drop reordering**: Click and drag chats to reorder them (order persisted to localStorage and restored on page refresh)
+  - **Drag-and-drop reordering**: Click and drag chats to reorder them (order persisted to localStorage and automatically restored on page refresh)
+  - Order is applied at the source (App.jsx) before rendering, ensuring reliable persistence
   - Language-dependent chat names
 - 📋 **Scratchpad**: File-based persistent note-taking area (auto-saves to `scratchpad.txt`, survives browser clearing and session changes)
 - 🎙️ **Audio Recording & Transcription**:

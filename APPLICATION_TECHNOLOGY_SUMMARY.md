@@ -159,10 +159,11 @@ backend/
   - Loading states
 
 **Chat Order Persistence**:
-- Order is applied in `App.jsx` before `setChats()` is called
-- This ensures correct order from the start, preventing race conditions with effects
-- Drag-and-drop saves order immediately to localStorage
-- On page refresh, order is restored at the source (App.jsx) before rendering
+- **Implementation**: Order is applied in `App.jsx` before `setChats()` is called
+- **Why at source**: Prevents race conditions with React effects that could overwrite the order
+- **Drag-and-drop**: Saves order immediately to localStorage when user reorders chats
+- **Page refresh**: Order is restored at the source (App.jsx) before chats enter the store, ensuring correct order from the start
+- **Reliability**: This approach is more reliable than effect-based restoration, which could be overwritten by other components
 
 ### **6. Internationalization**
 **Supported Languages**:
