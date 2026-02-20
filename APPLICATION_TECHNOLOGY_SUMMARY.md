@@ -118,27 +118,29 @@ backend/
 - **Streaming Responses**: Server-Sent Events (SSE)
 
 ### **3. MCP Tools (Model Context Protocol)**
-76 total tools across 12 categories:
-- **Perforce** (8 tools): Changelists, files, directories, client info
+80+ total tools across 13 categories:
+- **Perforce** (8 tools): Changelists, files, directories, client info, file history
 - **GitHub** (8 tools): Issues, PRs, commits, repos
-- **Jira** (8 tools): Projects, issues, search, comments
+- **Jira** (8 tools): Projects, issues, search, comments, transitions, worklog, status verification (cross-tool with Perforce)
 - **Confluence** (8 tools): Spaces, pages, search
-- **Slack** (8 tools): Channels, messages, threads, search
-- **Google Drive** (8 tools): Files, folders, search
-- **Gmail** (8 tools): Messages, threads, search
-- **Calendar** (8 tools): Events, search
-- **Discord** (8 tools): Channels, messages, guilds
+- **Slack** (6 tools): Channels, messages, threads, search, user info
+- **Google Drive** (9 tools): Files, folders, search, shared files
+- **Gmail** (8 tools): Messages, threads, search, labels, attachments
+- **Calendar** (7 tools): Events, search, free/busy
+- **Discord** (5 tools): Channels, messages, guilds
+- **Notion** (3 tools): Search pages/databases, fetch page content, fetch database
 - **Weather** (1 tool): Current weather by location
-- **Transcript** (8 tools): Audio transcription
-- **Math** (3 tools): Basic calculations
+- **Transcript** (10 tools): Audio transcription, search, summarize
+- **Math** (2 tools): Basic calculations, advanced expressions
 
 ### **4. Authentication & Credentials**
-- **Perforce**: Ticket-based authentication
+- **Perforce**: Ticket-based authentication (auto-refresh on expiration)
 - **GitHub**: Personal Access Token (PAT)
 - **Jira/Confluence**: Atlassian API Token + email
-- **Slack**: OAuth 2.0 (access + refresh tokens)
-- **Google Services**: OAuth 2.0 (access + refresh tokens)
+- **Slack**: OAuth 2.0 (access + refresh tokens, bot token fallback)
+- **Google Services**: OAuth 2.0 (access + refresh tokens, client ID/secret for auto-refresh)
 - **Discord**: Bot token
+- **Notion**: Internal Integration Token
 
 ### **5. State Management**
 **Zustand Store** manages:
@@ -293,10 +295,11 @@ backend/
 ## Security Considerations
 
 ### **Credentials Management**
-- All API keys/tokens stored in `backend/env/*.env` files
+- All API keys/tokens stored in `backend/credentials/*.env` files
 - Environment files in `.gitignore`
-- Perforce uses ticket-based auth (password not exposed)
-- OAuth tokens auto-refresh (Slack, Google)
+- Perforce uses ticket-based auth (password not exposed, auto-refresh on expiration)
+- OAuth tokens auto-refresh (Slack, Google) with refresh token support
+- Gmail supports custom OAuth app for persistent auto-refresh (requires client ID/secret)
 
 ### **CORS Configuration**
 - Frontend: `http://localhost:5174`
@@ -319,24 +322,35 @@ PORT=3002
 OLLAMA_URL=http://localhost:11434
 DEFAULT_MODEL=qwen2.5:1.5b
 
-# Perforce (backend/env/perforce.env)
+# Perforce (backend/credentials/perforce.env)
 P4_USER=username
 P4_PORT=perforce-server:1666
 P4_CLIENT=workspace_name
+P4PASSWD=password-or-ticket
 
-# Slack (backend/env/slack.env)
+# Slack (backend/credentials/slack.env)
 SLACK_ACCESS_TOKEN=xoxe.xoxp-...
 SLACK_REFRESH_TOKEN=xoxe-1-...
+SLACK_BOT_TOKEN=xoxb-... (optional, used as fallback)
 
-# Jira (backend/env/jira.env)
+# Jira (backend/credentials/jira.env)
 JIRA_BASE_URL=https://org.atlassian.net
 JIRA_EMAIL=user@example.com
 JIRA_API_TOKEN=...
 
-# Confluence (backend/env/confluence.env)
+# Confluence (backend/credentials/confluence.env)
 CONFLUENCE_BASE_URL=https://org.atlassian.net
 CONFLUENCE_EMAIL=user@example.com
 CONFLUENCE_API_TOKEN=...
+
+# Google Workspace (backend/credentials/google.env)
+GOOGLE_ACCESS_TOKEN=ya29...
+GOOGLE_REFRESH_TOKEN=1//...
+GOOGLE_CLIENT_ID=... (optional, for auto-refresh)
+GOOGLE_CLIENT_SECRET=... (optional, for auto-refresh)
+
+# Notion (backend/credentials/notion.env)
+NOTION_API_TOKEN=secret_...
 ```
 
 ### **Server Ports**

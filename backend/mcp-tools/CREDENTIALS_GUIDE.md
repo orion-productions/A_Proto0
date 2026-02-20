@@ -130,18 +130,22 @@ JIRA_API_TOKEN=ATATT3xFfGF0...
 3. Give your app a name and select your workspace
 4. Go to "OAuth & Permissions" in the left sidebar
 5. Scroll to "Scopes" → "Bot Token Scopes" and add:
-   - `channels:read`
-   - `channels:history`
-   - `groups:read`
-   - `groups:history`
-   - `users:read`
-   - `search:read`
+   - `channels:read` - Read channel information
+   - `channels:history` - Read channel messages
+   - `channels:join` - **REQUIRED**: Join channels automatically (allows bot to access channels without manual invitation)
+   - `groups:read` - Read private channel information
+   - `groups:history` - Read private channel messages
+   - `users:read` - Read user information
+   - `search:read` - **REQUIRED**: Search messages across workspace
 6. Scroll up and click "Install to Workspace"
 7. Authorize the app
 8. Copy the "Bot User OAuth Token" (starts with `xoxb-`)
 9. Set `SLACK_BOT_TOKEN=xoxb-your-token-here`
 
-**Note:** The bot must be added to channels you want to read from.
+**Note:** 
+- The `channels:join` scope is required for the bot to automatically join channels when needed
+- The `search:read` scope is required for message search functionality
+- If using OAuth 2.0 tokens, you can also set `SLACK_ACCESS_TOKEN` and `SLACK_REFRESH_TOKEN` for automatic token rotation
 
 ---
 
@@ -314,16 +318,21 @@ NOTION_API_TOKEN=secret_abc123def456...
 ## Complete .env File Example
 
 ```env
-# Google Workspace
+# Google Workspace (OAuth 2.0 with auto-refresh support)
 GOOGLE_ACCESS_TOKEN=ya29.a0AfH6SMBx...
+GOOGLE_REFRESH_TOKEN=1//04ODqQ92JNhXtCgYIARAAGAQSNwF-...
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com (optional, for auto-refresh)
+GOOGLE_CLIENT_SECRET=your-client-secret (optional, for auto-refresh)
 
 # Jira
 JIRA_BASE_URL=https://mycompany.atlassian.net
 JIRA_EMAIL=john.doe@company.com
 JIRA_API_TOKEN=ATATT3xFfGF0...
 
-# Slack
-SLACK_BOT_TOKEN=xoxb-1234567890-1234567890123-...
+# Slack (OAuth 2.0 tokens preferred, bot token as fallback)
+SLACK_ACCESS_TOKEN=xoxe.xoxp-1-...
+SLACK_REFRESH_TOKEN=xoxe-1-...
+SLACK_BOT_TOKEN=xoxb-1234567890-1234567890123-... (optional fallback)
 
 # GitHub
 GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz

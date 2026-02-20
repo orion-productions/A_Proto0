@@ -12,6 +12,7 @@ import googleDrive from './google-drive.js';
 import discord from './discord.js';
 import transcripts from './transcripts.js';
 import notion from './notion.js';
+import jiraPerforceVerify from './jira-perforce-verify.js';
 
 // Helper to extract tools (excluding 'definition')
 const extractTools = (module) => {
@@ -34,6 +35,7 @@ export const mcpTools = {
   ...extractTools(discord),
   ...extractTools(transcripts),
   ...extractTools(notion),
+  ...extractTools(jiraPerforceVerify),
 };
 
 // Export all tool definitions for LLM function calling
@@ -51,5 +53,6 @@ export const toolsDefinition = [
   ...discord.definition,
   ...transcripts.definition,
   ...notion.definition,
+  ...jiraPerforceVerify.definition,
 ];
 

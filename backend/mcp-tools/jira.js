@@ -228,6 +228,39 @@ const getJiraIssueTransitions = async (issueKey) => {
   };
 };
 
+// Add comment to JIRA issue
+const addJiraIssueComment = async (issueKey, commentText) => {
+  const commentBody = {
+    body: {
+      type: 'doc',
+      version: 1,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: commentText
+            }
+          ]
+        }
+      ]
+    }
+  };
+  
+  const result = await jiraApiCall(`issue/${issueKey}/comment`, 'POST', commentBody);
+  
+  if (result.error) return result;
+  
+  return {
+    id: result.id,
+    author: result.author.displayName,
+    body: result.body?.content?.[0]?.content?.[0]?.text || commentText,
+    created: result.created,
+    success: true
+  };
+};
+
 // Get issue worklog
 const getJiraIssueWorklog = async (issueKey) => {
   const result = await jiraApiCall(`issue/${issueKey}/worklog`);
@@ -255,6 +288,7 @@ export default {
   getJiraIssueComments,
   getJiraIssueTransitions,
   getJiraIssueWorklog,
+  addJiraIssueComment,
   definition: [
     {
       type: 'function',

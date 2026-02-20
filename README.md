@@ -7,7 +7,7 @@ A powerful AI-powered workspace with LLM integration, MCP tools, voice controls,
 - 🤖 **LLM Integration**: Chat with Ollama models (recommended: qwen2.5:7b for multilingual support, or qwen2.5:1.5b for speed) running on GPU/CPU with automatic device detection
 - 🔧 **MCP Tools** (80+ tools with aggressive filtering):
   - **Development**: Perforce (8 tools), GitHub (8 tools)
-  - **Collaboration**: JIRA (7 tools), Slack (6 tools), Confluence (8 tools)
+  - **Collaboration**: JIRA (8 tools), Slack (6 tools), Confluence (8 tools), Notion (3 tools)
   - **Google Workspace**: Gmail (8 tools), Calendar (7 tools), Drive (9 tools)
   - **Communication**: Discord (5 tools)
   - **Utilities**: Weather (1 tool), Calculator (2 tools), Transcripts (10 tools)
@@ -169,6 +169,7 @@ Current test coverage includes:
     - "What files were changed in changelist 69297?"
 15. **Use Collaboration Tools**: Ask about JIRA, Slack, GitHub, etc.:
     - "Show me JIRA issue PROJ-123"
+    - "In JIRA, in UNSEEN project, can you verify that the status of the task SCRUM-31 is correct?"
     - "List recent messages in #general channel"
     - "What are the open issues in [repo]?"
 16. **Scratchpad**: Write notes in the bottom-left section (auto-saves to file, persists across sessions)
@@ -262,26 +263,35 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 - `list_perforce_changelists`: List recent commits/changelists (filter by user, limit)
   - **Pending changelist support**: Fetches both submitted AND pending changelists
   - **Smart username normalization**: Handles "Jose Vieira", "jose.vieira", "Jose.Vieira" → `jose_vieira`
+  - **Username variants**: Automatically tries multiple username formats (e.g., `pierre_maury`, `pierre.maury`, `pierremaury`)
   - **Auto-sorting**: Merged results sorted by changelist number (newest first)
-- `get_perforce_changelist`: Get detailed changelist info (files, diffs, description)
-- `list_perforce_directories`: Explore depot structure (fixed wildcard syntax)
-- `list_perforce_files`: List files in a depot directory
+- `get_perforce_changelist`: Get detailed changelist info (files, diffs, description) for specific changelist numbers
+- `list_perforce_directories`: Explore depot structure (uses wildcard pattern `/*` for subdirectories)
+- `list_perforce_files`: List files in a depot directory (handles large directories with server-side limiting)
 - `get_perforce_file_info`: Get file metadata
 - `get_perforce_file_content`: Read file content from depot
-- `get_perforce_file_history`: View file revision history
+- `get_perforce_file_history`: View file revision history (correctly parses `p4 filelog` output)
 - `get_perforce_client`: View workspace configuration
 
 **Authentication:**
 - **Ticket-based authentication**: Auto-login when ticket expires
 - **Password handling**: Safely manages special characters in passwords
 - **Automatic retry**: Seamlessly re-authenticates and retries failed commands
+- **Enhanced error detection**: Detects expired sessions, invalid passwords, and ticket expiration
+
+**Error Handling:**
+- **Path validation**: Distinguishes between non-existent paths and empty directories
+- **Buffer overflow prevention**: Server-side limiting for large file listings
+- **Clear error messages**: Provides specific guidance for common issues
 
 **Example queries:**
 - "List the 5 most recent changelists from Jose Vieira" (handles any name format)
 - "Show me what's in the depot"
 - "Tell me about my P4 workspace configuration"
 - "What files were modified in changelist 69297?"
-- "List all files Pierre Maury changed over the last 30 days"
+- "Give me details on changelist number #71809"
+- "What is the revision history for //Unseen/Main/file.txt?"
+- "List subdirectories in //Unseen/Main/"
 
 #### **GitHub** (8 tools - Read-only access)
 - `get_github_issue`: View issue details
@@ -295,18 +305,60 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 
 ### Collaboration & Project Management
 
-#### **JIRA** (7 tools - Read-only)
-- View issues, sprints, boards
-- Search projects and issues
-- Get issue details and comments
-- View transitions and worklog
+#### **JIRA** (8 tools - Read-only)
+- `get_jira_issue`: Get specific issue details
+- `search_jira_issues`: Search issues with JQL queries
+- `get_jira_project`: Get project information
+- `get_jira_projects`: List all accessible projects
+- `get_jira_issue_comments`: View issue comments
+- `get_jira_issue_transitions`: View available transitions
+- `get_jira_issue_worklog`: View worklog entries
+- `verify_jira_task_status`: Verify JIRA task status against Perforce changelists (cross-tool integration)
+
+**Project Key Mapping:**
+- "UNSEEN project" → Use project key "SCRUM" in JQL queries
+- Example: "List tasks in UNSEEN project" → `project = SCRUM AND issuetype = Task`
+
+**JIRA-Perforce Verification:**
+- `verify_jira_task_status`: Automatically verifies if a JIRA task status is correct by checking Perforce changelists
+  - Gets JIRA issue details (summary, description, status, assignee)
+  - Searches Perforce changelists for mentions of the task
+  - Determines if status should be "Done" based on whether matching changelists are found
+  - Adds a comment to the JIRA issue if status is incorrect
+  - Logic: If matching changelist found → status should be "Done"; If no changelist → status should NOT be "Done" (can be "To Do" or "In Progress")
+
+**Example queries:**
+- "List all tasks in UNSEEN project"
+- "Show me bugs in SCRUM project"
+- "Get issue SCRUM-30"
+- "What projects do I have access to?"
+- "In JIRA, in UNSEEN project, can you verify that the status of the task SCRUM-31 is correct?"
+- "Verify if SCRUM-30 status is correct"
 
 #### **Slack** (6 tools - Read-only)
-- List channels and messages
-- Search conversations
-- View channel history
-- Get user information
-- View thread replies
+- `get_slack_channels`: List all channels in workspace
+- `get_slack_messages`: Get messages from a channel (supports `#channel_name` format)
+- `get_slack_channel_info`: Get channel details
+- `get_slack_user`: Get user information
+- `search_slack_messages`: Search messages across workspace
+- `get_slack_thread_replies`: Get replies to a thread
+
+**Features:**
+- **Channel name lookup**: Automatically converts `#channel_name` to channel ID
+- **Auto-join**: Automatically attempts to join channels if bot is not a member
+- **OAuth 2.0**: Supports access token and refresh token for automatic token rotation
+
+**Required OAuth Scopes:**
+- `channels:read` - Read channel information
+- `channels:history` - Read channel messages
+- `channels:join` - Join channels automatically
+- `search:read` - Search messages
+- `users:read` - Read user information
+
+**Example queries:**
+- "Show me most recent message from #random channel"
+- "List all channels in my workspace"
+- "Search for messages containing 'meeting'"
 
 #### **Confluence** (8 tools - Read-only)
 - Browse spaces and pages
@@ -316,8 +368,29 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 ### Google Workspace (Read-only)
 
 - **Gmail** (8 tools): Read emails, search inbox, view labels, threads, attachments, profile
+  - **Automatic token refresh**: Uses OAuth 2.0 refresh tokens for seamless token rotation
+  - **Client credentials**: Supports custom OAuth app for persistent auto-refresh
 - **Google Calendar** (7 tools): View events and schedules, search, free/busy status, upcoming events
 - **Google Drive** (9 tools): List and read files, search, folders, shared files, recent files
+
+### Productivity & Knowledge
+
+- **Notion** (3 tools - Read-only):
+  - `notion_search`: Search pages and databases in your workspace
+  - `notion_fetch_page`: Fetch page content by ID or URL
+  - `notion_fetch_database`: Fetch database structure and entries
+  
+  **Features:**
+  - **Two-step process**: Search by title first, then fetch by ID/URL
+  - **Database support**: Searches both pages and databases
+  - **Recently viewed**: Supports sorting by `last_edited_time` for recent items
+  - **Sharing required**: Pages/databases must be shared with the integration
+  
+  **Example queries:**
+  - "Search my Notion workspace"
+  - "Show me what's in my Notion inbox"
+  - "List pages I viewed recently"
+  - "Fetch the Notion page titled 'Setup Perforce'"
 
 ### Communication
 
@@ -365,12 +438,48 @@ The application includes 80+ MCP (Model Context Protocol) tools across multiple 
 MCP tools requiring authentication store credentials securely in `backend/credentials/`:
 - `perforce.env` - Perforce server, user, client, password
 - `jira.env` - JIRA base URL, email, API token
-- `slack.env` - Slack bot token
-- `google.env` - Google Workspace access token
+- `slack.env` - Slack OAuth tokens (access token, refresh token, bot token)
+- `google.env` - Google Workspace access token, refresh token, client ID, client secret
+- `notion.env` - Notion API token
 
-See `backend/credentials/README.md` for setup instructions.
+See `backend/mcp-tools/CREDENTIALS_GUIDE.md` for detailed setup instructions.
 
 **Note**: All credential files are gitignored and must be created manually.
+
+## Recent Improvements
+
+### JIRA Integration
+- **Fixed API endpoint**: Updated to use `/rest/api/3/search/jql` endpoint (GET with query parameters)
+- **Project key mapping**: "UNSEEN project" automatically maps to "SCRUM" project key in JQL queries
+- **Fallback support**: Compatible with older JIRA instances using POST endpoint
+- **JIRA-Perforce Verification Tool**: New cross-tool integration that verifies JIRA task status against Perforce changelists
+  - Automatically checks if task status matches Perforce evidence
+  - Adds comments to JIRA issues when status is incorrect
+  - Supports intelligent keyword matching between JIRA issues and Perforce changelist descriptions
+  - Logic: If matching changelist found → status should be "Done"; If no changelist → status should NOT be "Done" (can be "To Do" or "In Progress")
+
+### Perforce Tools
+- **File history parsing**: Fixed `p4 filelog` output parsing to correctly extract revision details
+- **Directory listing**: Fixed subdirectory listing using wildcard pattern `/*`
+- **Username variants**: Automatically tries multiple username formats (e.g., `pierre_maury`, `pierre.maury`)
+- **Authentication improvements**: Enhanced error detection and automatic retry for expired sessions
+- **Error handling**: Better distinction between non-existent paths and empty directories
+
+### Slack Integration
+- **Channel name lookup**: Supports `#channel_name` format, automatically converts to channel ID
+- **Auto-join**: Automatically attempts to join channels when bot is not a member
+- **OAuth 2.0 support**: Full support for access tokens and refresh tokens with automatic rotation
+- **Better error messages**: Clear guidance on missing OAuth scopes (`channels:join`, `search:read`)
+
+### Gmail Integration
+- **Automatic token refresh**: Uses OAuth 2.0 refresh tokens for seamless token rotation
+- **Custom OAuth app support**: Can use your own OAuth application for persistent auto-refresh
+- **Improved error handling**: Better messages for token expiration and authentication failures
+
+### Notion Integration
+- **Search and fetch**: Two-step process for fetching pages by title (search first, then fetch)
+- **Database support**: Searches both pages and databases
+- **Recently viewed**: Supports sorting by `last_edited_time` for recent items
 
 ## License
 

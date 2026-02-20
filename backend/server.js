@@ -136,6 +136,8 @@ async function executeTool(toolName, params) {
         return await mcpTools.getJiraIssueTransitions(params.issueKey);
       case 'get_jira_issue_worklog':
         return await mcpTools.getJiraIssueWorklog(params.issueKey);
+      case 'verify_jira_task_status':
+        return await mcpTools.verifyJiraTaskStatus(params.issueKey, params.projectKey);
       
       // Slack tools
       case 'get_slack_channels':
@@ -581,6 +583,14 @@ app.post('/api/chats/:id/messages', (req, res) => {
   res.json({ id: messageId, chat_id: req.params.id, role, content, timestamp });
 });
 
+app.delete('/api/chats/:id/messages', (req, res) => {
+  db.prepare('DELETE FROM messages WHERE chat_id = ?').run(req.params.id);
+  const timestamp = Date.now();
+  db.prepare('UPDATE chats SET updated_at = ? WHERE id = ?')
+    .run(timestamp, req.params.id);
+  res.json({ success: true });
+});
+
 // LLM integration with tool calling support
 app.post('/api/llm/chat', async (req, res) => {
   const { 
@@ -622,6 +632,7 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsAddTool = /add|sum|plus|\+|calculate/i.test(lastUserMessage);
       const needsMathTool = /(\d\s*[\+\-\*\/\^]\s*\d)|\b(sin|cos|tan|asin|acos|atan|exp|log|ln|sqrt|abs|min|max)\s*\(|\bpi\b|π|log\(/i.test(lastUserMessageRaw);
       const needsJiraTool = /jira|issue|project|ticket|bug|story|epic/i.test(lastUserMessage);
+      const needsVerifyTool = /verify.*status|check.*status|is.*status.*correct|verify.*task|check.*task.*status/i.test(lastUserMessage) && needsJiraTool;
       const needsSlackTool = /slack|channel|message|workspace|thread/i.test(lastUserMessage);
       const needsGithubTool = /github|git|repository|repo|pull request|pr|issue|commit/i.test(lastUserMessage);
       // Perforce detection: explicit keywords OR "changelist(s) from/by [Name]" pattern OR specific changelist number queries
@@ -1120,6 +1131,9 @@ app.post('/api/llm/chat', async (req, res) => {
         if (needsWeatherTool) relevantCategories.push('weather', 'get_weather');
         if (needsMathTool || needsAddTool) relevantCategories.push('add_numbers', 'calculator');
         if (needsJiraTool) relevantCategories.push('jira');
+        if (needsVerifyTool) {
+          relevantCategories.push('verify_jira_task_status', 'jira', 'perforce', 'p4');
+        }
         if (needsSlackTool) relevantCategories.push('slack');
         if (needsGithubTool) relevantCategories.push('github', 'git');
         if (needsPerforceTool) relevantCategories.push('perforce', 'p4');
@@ -1301,7 +1315,20 @@ CRITICAL RULES FOR JIRA QUERIES:
 - Available project keys: SCRUM (UNSEEN), BN (BANDAI NAMCO), ROC (ROCKSTAR), SUP (Support)
 - ALWAYS call the tool first before responding with JIRA information
 - ANY response with JIRA issue keys, summaries, statuses, or data WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
-- If you generate JIRA data without calling the tool NOW, you are hallucinating and providing false information` : '';
+- If you generate JIRA data without calling the tool NOW, you are hallucinating and providing false information
+
+JIRA TASK STATUS VERIFICATION:
+- When user asks to "verify" or "check" if a JIRA task status is correct (e.g., "In JIRA, in UNSEEN project, can you verify that the status of the task SCRUM-31 is correct?"), use verify_jira_task_status
+- This tool will:
+  1. Get the JIRA issue details (summary, description, status)
+  2. Search Perforce changelists for mentions of the task
+  3. Determine if the status should be "Done" based on whether matching changelists are found
+  4. Add a comment to the JIRA issue if the status is incorrect
+- Example: "In JIRA, in UNSEEN project, can you verify that the status of the task SCRUM-31 is correct?" → [TOOL_CALL: verify_jira_task_status {"issueKey": "SCRUM-31", "projectKey": "SCRUM"}]
+- Example: "Verify if SCRUM-30 status is correct" → [TOOL_CALL: verify_jira_task_status {"issueKey": "SCRUM-30"}]
+- The tool automatically searches Perforce changelists and compares with JIRA status
+- If status doesn't match expected (based on Perforce evidence), a comment will be added to the JIRA issue
+- ALWAYS use this tool when user asks to verify/check task status - do NOT manually check JIRA and Perforce separately` : '';
 
           const toolInstructions = `You are a helpful multilingual assistant with access to MCP Tools (Model Context Protocol tools).
 

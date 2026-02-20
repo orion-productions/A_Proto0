@@ -218,19 +218,20 @@
 
 ### **MCP Tools Architecture**
 
-**Tool Categories** (12):
+**Tool Categories** (13):
 1. Perforce (8 tools)
 2. GitHub (8 tools)
-3. Jira (8 tools)
+3. Jira (8 tools) - includes JIRA-Perforce verification tool
 4. Confluence (8 tools)
-5. Slack (8 tools)
-6. Google Drive (8 tools)
+5. Slack (6 tools)
+6. Google Drive (9 tools)
 7. Gmail (8 tools)
-8. Calendar (8 tools)
-9. Discord (8 tools)
-10. Weather (1 tool)
-11. Transcript (8 tools)
-12. Math (3 tools)
+8. Calendar (7 tools)
+9. Discord (5 tools)
+10. Notion (3 tools)
+11. Weather (1 tool)
+12. Transcript (10 tools)
+13. Math (2 tools)
 
 ### **Tool Definition Structure**
 
