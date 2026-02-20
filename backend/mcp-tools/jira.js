@@ -56,7 +56,13 @@ const jiraApiCall = async (endpoint, method = 'GET', data = null) => {
     };
     
     if (data) {
-      config.data = data;
+      if (method === 'GET') {
+        // For GET requests, add data as query parameters
+        config.params = data;
+      } else {
+        // For POST/PUT requests, add data as body
+        config.data = data;
+      }
     }
     
     const response = await axios(config);
@@ -100,27 +106,50 @@ const getJiraIssue = async (issueKey) => {
 };
 
 // Search Jira issues
+// Note: Some JIRA instances require using search/jql endpoint (GET with query params)
 const searchJiraIssues = async (jql, maxResults = 50, startAt = 0) => {
-  const result = await jiraApiCall('search', 'POST', {
-    jql,
-    maxResults: Math.min(maxResults, 100),
-    startAt,
-    fields: ['summary', 'status', 'assignee', 'issuetype', 'priority', 'created', 'updated'],
-  });
+  // Try the new search/jql endpoint format (GET with query parameters)
+  // Format: /rest/api/3/search/jql?jql=...&maxResults=...&startAt=...
+  const jqlEncoded = encodeURIComponent(jql);
+  const endpoint = `search/jql?jql=${jqlEncoded}&maxResults=${Math.min(maxResults, 100)}&startAt=${startAt}&fields=summary,status,assignee,issuetype,priority,created,updated`;
+  
+  const result = await jiraApiCall(endpoint, 'GET');
+  
+  // If that fails, fall back to POST with body (for older JIRA instances)
+  if (result.error && result.error.includes('removed')) {
+    console.log('⚠️ search/jql endpoint not available, trying standard search endpoint...');
+    const fallbackResult = await jiraApiCall('search', 'POST', {
+      jql: jql,
+      maxResults: Math.min(maxResults, 100),
+      startAt: startAt,
+      fields: ['summary', 'status', 'assignee', 'issuetype', 'priority', 'created', 'updated'],
+    });
+    if (!fallbackResult.error) {
+      return processSearchResult(fallbackResult);
+    }
+  }
   
   if (result.error) return result;
   
+  return processSearchResult(result);
+};
+
+// Helper function to process search results (handles both old and new API formats)
+const processSearchResult = (result) => {
+  // New API format uses 'values' array, old format uses 'issues' array
+  const issuesArray = result.issues || result.values || [];
+  
   return {
-    total: result.total,
-    issues: result.issues.map(issue => ({
+    total: result.total || issuesArray.length,
+    issues: issuesArray.map(issue => ({
       key: issue.key,
-      summary: issue.fields.summary,
-      status: issue.fields.status.name,
-      assignee: issue.fields.assignee?.displayName || 'Unassigned',
-      issueType: issue.fields.issuetype.name,
-      priority: issue.fields.priority?.name || '',
-      created: issue.fields.created,
-      updated: issue.fields.updated,
+      summary: issue.fields?.summary || issue.summary || 'No summary',
+      status: issue.fields?.status?.name || issue.status?.name || 'Unknown',
+      assignee: issue.fields?.assignee?.displayName || issue.assignee?.displayName || 'Unassigned',
+      issueType: issue.fields?.issuetype?.name || issue.issuetype?.name || 'Unknown',
+      priority: issue.fields?.priority?.name || issue.priority?.name || '',
+      created: issue.fields?.created || issue.created || '',
+      updated: issue.fields?.updated || issue.updated || '',
     })),
   };
 };

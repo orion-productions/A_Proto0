@@ -330,6 +330,14 @@ async function executeTool(toolName, params) {
       case 'summarize_keyword_in_transcript':
         return mcpTools.summarizeKeywordInTranscript(params.fileName, params.keyword);
       
+      // Notion tools
+      case 'notion_search':
+        return await mcpTools.searchNotion(params.query, params.pageSize, params.sortBy);
+      case 'notion_fetch_page':
+        return await mcpTools.fetchNotionPage(params.pageIdOrUrl);
+      case 'notion_fetch_database':
+        return await mcpTools.fetchNotionDatabase(params.databaseIdOrUrl);
+      
       default:
         console.error(`Unknown tool: ${toolName}`);
         return { error: `Unknown tool: ${toolName}` };
@@ -624,6 +632,7 @@ app.post('/api/llm/chat', async (req, res) => {
         /(jose|pierre|aaron|kieran|yurie|kenan|denis|unseen|sean|fisher).*(changed?|modified?|files?|commit)/i.test(lastUserMessage) ||
         /(changed?|modified?|files?).*by.*(jose|pierre|aaron|sean|fisher)/i.test(lastUserMessage);
       const needsConfluenceTool = /confluence|page|space|wiki|documentation/i.test(lastUserMessage);
+      const needsNotionTool = /notion|notion page|notion database|notion workspace/i.test(lastUserMessage);
       const needsGmailTool = /gmail|email|mail|message|inbox|unread|sent/i.test(lastUserMessage);
       const needsCalendarTool = /calendar|event|meeting|appointment|schedule|agenda/i.test(lastUserMessage);
       const needsDriveTool = /drive|file|document|folder|google drive|gdrive/i.test(lastUserMessage);
@@ -638,7 +647,7 @@ app.post('/api/llm/chat', async (req, res) => {
       const needsTranscriptTool = /transcript|recording|meeting notes|what was said|what did.*say|display.*transcript|show.*transcript|summarize.*transcript|find.*transcript|search.*transcript|transcript file|what.*in.*transcript|words.*transcript|topics.*transcript/i.test(lastUserMessage) || sentenceQuery || mentionQuery;
       
       const needsTools = needsWeatherTool || needsAddTool || needsJiraTool || 
-                        needsSlackTool || needsGithubTool || needsPerforceTool || needsConfluenceTool ||
+                        needsSlackTool || needsGithubTool || needsPerforceTool || needsConfluenceTool || needsNotionTool ||
                         needsGmailTool || needsCalendarTool || needsDriveTool || needsDiscordTool || needsTranscriptTool || needsMathTool;
       
       console.log('User message:', lastUserMessage);
@@ -651,6 +660,7 @@ app.post('/api/llm/chat', async (req, res) => {
         github: needsGithubTool,
         perforce: needsPerforceTool,
         confluence: needsConfluenceTool,
+        notion: needsNotionTool,
         gmail: needsGmailTool,
         calendar: needsCalendarTool,
         drive: needsDriveTool,
@@ -1114,6 +1124,7 @@ app.post('/api/llm/chat', async (req, res) => {
         if (needsGithubTool) relevantCategories.push('github', 'git');
         if (needsPerforceTool) relevantCategories.push('perforce', 'p4');
         if (needsConfluenceTool) relevantCategories.push('confluence');
+        if (needsNotionTool) relevantCategories.push('notion');
         if (needsGmailTool) relevantCategories.push('gmail');
         if (needsCalendarTool) relevantCategories.push('calendar');
         if (needsDriveTool) relevantCategories.push('drive');
@@ -1198,9 +1209,11 @@ CRITICAL RULES FOR PERFORCE QUERIES:
 - Previous tool calls do NOT count - you MUST make a NEW tool call for EACH new user request
 - If user asks for "10 most recent changelists", use list_perforce_changelists with limit=10
 - If user specifies a username (e.g., "from Jose Vieira", "from Sean Fisher"), use the user parameter
-- Example: "list changelists from jose_vieira" → [TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 50}]
-- Example: "10 most recent changelists from john_doe" → [TOOL_CALL: list_perforce_changelists {"user": "john_doe", "limit": 10}]
-- Example: "10 most recent changelists from Sean Fisher" → [TOOL_CALL: list_perforce_changelists {"user": "sean_fisher", "limit": 10}]
+       - Example: "list changelists from jose_vieira" → [TOOL_CALL: list_perforce_changelists {"user": "jose_vieira", "limit": 50}]
+       - Example: "10 most recent changelists from john_doe" → [TOOL_CALL: list_perforce_changelists {"user": "john_doe", "limit": 10}]
+       - Example: "10 most recent changelists from Sean Fisher" → [TOOL_CALL: list_perforce_changelists {"user": "sean_fisher", "limit": 10}]
+       - Example: "10 most recent changelists from Pierre Maury" → [TOOL_CALL: list_perforce_changelists {"user": "Pierre Maury", "limit": 10}]
+       - IMPORTANT: If the tool returns an empty changelists array with a message about trying username variants, report that message to the user. Do not just say "no changelists found" - explain that the username format might not match Perforce's format.
 - ALWAYS call the tool first before responding with changelist information
 - ANY response with changelist numbers, dates, or descriptions WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
 - If you generate changelist data without calling the tool NOW, you are hallucinating and providing false information
@@ -1216,7 +1229,79 @@ PERFORCE CHANGELIST DETAIL QUERIES:
 - Example: "Give me details on changelist #71809" → [TOOL_CALL: get_perforce_changelist {"changelist": "71809"}]
 - Example: "What's in changelist 12345?" → [TOOL_CALL: get_perforce_changelist {"changelist": "12345"}]
 - Extract the changelist NUMBER from the query (remove # symbol if present)
-- ALWAYS call the tool - NEVER make up changelist details from memory` : '';
+- ALWAYS call the tool - NEVER make up changelist details from memory
+
+PERFORCE FILE HISTORY QUERIES:
+- When user asks about "revision history", "file history", "change history", or "history of" a specific file, use get_perforce_file_history
+- Example: "What is the revision history for //Unseen/Main/file.txt?" → [TOOL_CALL: get_perforce_file_history {"filePath": "//Unseen/Main/file.txt"}]
+- Example: "Show me the history of //Unseen/Main/Kmr/dummy.txt" → [TOOL_CALL: get_perforce_file_history {"filePath": "//Unseen/Main/Kmr/dummy.txt"}]
+- Use the EXACT file path provided by the user (depot path format: //depot/path/to/file.txt)
+- If the tool returns an error (e.g., file doesn't exist), report that error to the user - do not make up history
+- If the tool returns history, present it clearly with revision numbers, changelists, dates, users, and descriptions
+- ALWAYS call the tool - NEVER invent file history from memory` : '';
+
+          const slackRules = needsSlackTool ? `
+
+CRITICAL RULES FOR SLACK QUERIES:
+- When user asks about Slack channels, messages, workspace, or Slack data, you MUST use Slack tools
+- NEVER generate Slack data from memory or training data - ALL Slack data MUST come from tool calls
+- ALWAYS call the tool EVERY TIME the user asks for Slack information, even if you have previous results
+- Example: "List all my Slack channels" → [TOOL_CALL: get_slack_channels]
+- Example: "Show me messages from #general" → [TOOL_CALL: get_slack_messages {"channel": "#general", "limit": 20}]
+- Example: "Show me most recent message from #random" → [TOOL_CALL: get_slack_messages {"channel": "#random", "limit": 1}]
+- Example: "Search Slack for meeting notes" → [TOOL_CALL: search_slack_messages {"query": "meeting notes", "count": 10}]
+- IMPORTANT: You can use channel names directly with # prefix (e.g., "#random", "#general") - the tool will automatically look up the channel ID
+- You do NOT need to call get_slack_channels first to get channel IDs - just use the channel name with # prefix
+- ALWAYS call the tool first before responding with Slack information
+- ANY response with Slack channel names, messages, or data WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
+- If you generate Slack data without calling the tool NOW, you are hallucinating and providing false information` : '';
+
+          const notionRules = needsNotionTool ? `
+
+CRITICAL RULES FOR NOTION QUERIES:
+- When user asks about Notion pages, databases, workspace, or Notion content, you MUST use Notion tools
+- NEVER generate Notion data from memory or training data - ALL Notion data MUST come from tool calls
+- ALWAYS call the tool EVERY TIME the user asks for Notion information
+- Example: "Search my Notion workspace" → [TOOL_CALL: notion_search {"query": "workspace", "pageSize": 10}]
+- Example: "What pages do I have in Notion?" → [TOOL_CALL: notion_search {"query": "", "pageSize": 20}]
+- Example: "What is in my inbox?" → 
+  Step 1: [TOOL_CALL: notion_search {"query": "inbox", "pageSize": 10}] to find the inbox database
+  Step 2: If a database is found, use [TOOL_CALL: notion_fetch_database {"databaseIdOrUrl": "database_id_or_url"}] to get its entries
+- Example: "What is in my library?" → 
+  Step 1: [TOOL_CALL: notion_search {"query": "library", "pageSize": 10}] to find the library database
+  Step 2: If a database is found, use [TOOL_CALL: notion_fetch_database {"databaseIdOrUrl": "database_id_or_url"}] to get its entries
+- Example: "Pages I viewed recently" or "recently viewed pages" → [TOOL_CALL: notion_search {"query": "", "pageSize": 20, "sortBy": "recent"}]
+- IMPORTANT: When user asks about a specific page by TITLE (e.g., "write down what is in page X"), you MUST:
+  1. FIRST search for the page: [TOOL_CALL: notion_search {"query": "page title", "pageSize": 5}]
+  2. Get the page ID or URL from the search result
+  3. THEN fetch the page content: [TOOL_CALL: notion_fetch_page {"pageIdOrUrl": "page_id_or_url_from_search_result"}]
+- Example: "Get content from Setup Perforce" → 
+  Step 1: [TOOL_CALL: notion_search {"query": "Setup Perforce", "pageSize": 5}]
+  Step 2: Use the "id" or "url" from the search result → [TOOL_CALL: notion_fetch_page {"pageIdOrUrl": "2281ab864f8b80f78de4e7fa76aad1a9"}]
+- If user provides a Notion URL directly, use it: [TOOL_CALL: notion_fetch_page {"pageIdOrUrl": "https://www.notion.so/..."}]
+- ALWAYS call the tool first before responding with Notion information
+- ANY response with Notion page names, content, or data WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
+- If you generate Notion data without calling the tool NOW, you are hallucinating and providing false information` : '';
+
+          const jiraRules = needsJiraTool ? `
+
+CRITICAL RULES FOR JIRA QUERIES:
+- When user asks about JIRA issues, projects, tasks, bugs, stories, or JIRA data, you MUST use JIRA tools
+- NEVER generate JIRA data from memory or training data - ALL JIRA data MUST come from tool calls
+- ALWAYS call the tool EVERY TIME the user asks for JIRA information, even if you have previous results
+- IMPORTANT PROJECT KEY MAPPING:
+  - When user says "UNSEEN project" or "UNSEEN space", use project key "SCRUM" in JQL queries
+  - The project name "UNSEEN" has project key "SCRUM" in this JIRA instance
+  - Example: "List tasks in UNSEEN project" → [TOOL_CALL: search_jira_issues {"jql": "project = SCRUM AND issuetype = Task"}]
+  - Example: "Show me bugs in UNSEEN" → [TOOL_CALL: search_jira_issues {"jql": "project = SCRUM AND issuetype = Bug"}]
+- Example: "List all tasks in SCRUM project" → [TOOL_CALL: search_jira_issues {"jql": "project = SCRUM AND issuetype = Task"}]
+- Example: "Show me issues assigned to me" → [TOOL_CALL: search_jira_issues {"jql": "assignee = currentUser()", "maxResults": 50}]
+- Example: "Get issue SCRUM-30" → [TOOL_CALL: get_jira_issue {"issueKey": "SCRUM-30"}]
+- Example: "What projects do I have access to?" → [TOOL_CALL: get_jira_projects]
+- Available project keys: SCRUM (UNSEEN), BN (BANDAI NAMCO), ROC (ROCKSTAR), SUP (Support)
+- ALWAYS call the tool first before responding with JIRA information
+- ANY response with JIRA issue keys, summaries, statuses, or data WITHOUT calling the tool in THIS REQUEST is WRONG and FORBIDDEN
+- If you generate JIRA data without calling the tool NOW, you are hallucinating and providing false information` : '';
 
           const toolInstructions = `You are a helpful multilingual assistant with access to MCP Tools (Model Context Protocol tools).
 
@@ -1253,7 +1338,9 @@ MULTILINGUAL SUPPORT:
   * German: "Wie ist das Wetter in Paris?" → [TOOL_CALL: get_weather {"city": "Paris"}]
   * Japanese: "パリの天気は?" → [TOOL_CALL: get_weather {"city": "Paris"}]
 - ALWAYS extract the city name and call the tool, regardless of the query language
-- Respond to the user in the SAME language they used in their query
+- CRITICAL: Respond to the user in the SAME language they used in their CURRENT query (the most recent user message)
+- Do NOT change languages based on error messages, tool results, or previous conversation - ONLY use the language from the current user query
+- If the user asks in English, respond in English. If they ask in Spanish, respond in Spanish. Always match the current query language.
 
 When you need to use a tool, respond with EXACTLY this format:
 [TOOL_CALL: tool_name {"param": "value"}]
@@ -1269,7 +1356,14 @@ For example:
 [TOOL_CALL: list_perforce_directories {"path": "//Unseen/Main/"}]
 [TOOL_CALL: list_perforce_directories {}]
 [TOOL_CALL: list_perforce_files {"path": "//Unseen/Main/Source/"}]
-${transcriptExamples}${transcriptRules}${perforceRules}
+[TOOL_CALL: get_slack_channels]
+[TOOL_CALL: get_slack_messages {"channel": "#random", "limit": 20}]
+[TOOL_CALL: get_slack_messages {"channel": "#general", "limit": 1}]
+[TOOL_CALL: get_slack_channel_info {"channel": "#random"}]
+[TOOL_CALL: search_slack_messages {"query": "meeting notes", "count": 10}]
+[TOOL_CALL: notion_search {"query": "workspace", "pageSize": 10}]
+[TOOL_CALL: notion_fetch_page {"pageIdOrUrl": "https://notion.so/..."}]
+${transcriptExamples}${transcriptRules}${perforceRules}${slackRules}${notionRules}${jiraRules}
 
 After using a tool, you'll receive the result and should provide a natural language response to the user IN THEIR LANGUAGE.`;
 
@@ -1291,18 +1385,42 @@ After using a tool, you'll receive the result and should provide a natural langu
         }
       }
       
-      // Detect if query is in non-English language and translate if needed for better tool calling
+      // Detect user's language for response matching (MUST be done before using userLanguage)
+      let userLanguage = 'English'; // Default to English
       const lastUserMsg = conversationMessages[conversationMessages.length - 1];
-      if (lastUserMsg && lastUserMsg.role === 'user' && enableTools && needsTools) {
+      if (lastUserMsg && lastUserMsg.role === 'user') {
         const userQuery = lastUserMsg.content;
         
         // Simple language detection (check for non-ASCII characters or common non-English words)
         const hasNonAscii = /[^\x00-\x7F]/.test(userQuery); // Japanese, Chinese, etc.
         const hasFrench = /\b(quel|quelle|comment|pourquoi|où|quand|temps|fait|paris)\b/i.test(userQuery);
-        const hasSpanish = /\b(qué|cómo|dónde|cuándo|tiempo|hace)\b/i.test(userQuery);
+        const hasSpanish = /\b(qué|cómo|dónde|cuándo|tiempo|hace|lo siento|pero|tengo|acceso|canal|mensaje|más|reciente)\b/i.test(userQuery);
         const hasGerman = /\b(wie|was|wo|wann|wetter|ist)\b/i.test(userQuery);
         
+        // Determine user's language
+        // Check for English patterns first (common English words/phrases)
+        const hasEnglish = /\b(show|me|most|recent|message|from|channel|list|get|what|where|when|how|why|can|you|please|help)\b/i.test(userQuery);
+        
+        if (hasSpanish) userLanguage = 'Spanish';
+        else if (hasFrench) userLanguage = 'French';
+        else if (hasGerman) userLanguage = 'German';
+        else if (hasNonAscii && !hasEnglish) userLanguage = 'Non-English';
+        else userLanguage = 'English'; // Default to English for English queries or ambiguous cases
+        
         const isNonEnglish = hasNonAscii || hasFrench || hasSpanish || hasGerman;
+        
+        // Add explicit language instruction based on user's query language
+        if (userLanguage === 'English') {
+          conversationMessages.push({
+            role: 'system',
+            content: `CRITICAL LANGUAGE RULE: The user asked in English. You MUST respond in English, regardless of what language appears in tool results, error messages, or previous conversation. Always respond in English when the user asks in English.`
+          });
+        } else {
+          conversationMessages.push({
+            role: 'system',
+            content: `CRITICAL LANGUAGE RULE: The user asked in ${userLanguage}. You MUST respond in ${userLanguage}, not in English or any other language. Always match the user's query language exactly.`
+          });
+        }
         
         if (isNonEnglish) {
           console.log(`[TRANSLATION] Non-English query detected, translating to English for tool calling...`);
@@ -1473,19 +1591,21 @@ After using a tool, you'll receive the result and should provide a natural langu
         
         // Check for manual tool call format (fallback for models without native support)
         const content = assistantMessage.content || '';
-        // More flexible regex: match [TOOL_CALL: toolname {json}] or [TOOL_CALL: toolname {json})
-        const toolCallMatch = content.match(/\[TOOL_CALL:\s*([\w_]+)\s*({.*?})\s*[\]\)]/s);
+        // More flexible regex: match [TOOL_CALL: toolname] or [TOOL_CALL: toolname {json}] or [TOOL_CALL: toolname {json})
+        // JSON part is optional - if missing, use empty object {}
+        const toolCallMatch = content.match(/\[TOOL_CALL:\s*([\w_]+)(?:\s*({.*?}))?\s*[\]\)]/s);
         
         if (toolCallMatch && enableTools) {
           toolCallsDetected = true;
           const toolName = toolCallMatch[1];
+          const jsonPart = toolCallMatch[2] || '{}'; // Default to empty object if no JSON provided
           let toolParams;
           
           try {
-            toolParams = JSON.parse(toolCallMatch[2]);
+            toolParams = JSON.parse(jsonPart);
           } catch (parseError) {
             // Try to fix common JSON errors: missing property names, unquoted strings
-            let jsonStr = toolCallMatch[2];
+            let jsonStr = jsonPart;
             
             // Fix: {"value"} -> {"path": "value"} or {"value": "value"} depending on context
             // Common pattern: {"//path/"} should become {"path": "//path/"}
@@ -1497,14 +1617,14 @@ After using a tool, you'll receive the result and should provide a natural langu
                                    toolName.includes('changelist') ? 'changelist' :
                                    toolName.includes('user') ? 'user' : 'value';
               jsonStr = `{"${inferredParam}": "${singleValueMatch[1]}"}`;
-              console.log(`[TOOL_CALL] Fixed malformed JSON: ${toolCallMatch[2]} -> ${jsonStr}`);
+              console.log(`[TOOL_CALL] Fixed malformed JSON: ${jsonPart} -> ${jsonStr}`);
             }
             
             try {
               toolParams = JSON.parse(jsonStr);
             } catch (retryError) {
               console.error(`[TOOL_CALL] JSON parse error for tool ${toolName}:`, parseError.message);
-              console.error(`[TOOL_CALL] Original JSON: ${toolCallMatch[2]}`);
+              console.error(`[TOOL_CALL] Original JSON: ${jsonPart}`);
               console.error(`[TOOL_CALL] Fixed JSON: ${jsonStr}`);
               // Continue to next iteration - don't execute tool with invalid params
               continue;
@@ -1535,9 +1655,13 @@ After using a tool, you'll receive the result and should provide a natural langu
             role: 'assistant',
             content: content
           });
+          // Explicitly tell LLM to respond in the user's language
+          const languageInstruction = userLanguage === 'English' 
+            ? 'CRITICAL: The user asked in English. You MUST respond in English, regardless of what language appears in the tool result or error messages. Always respond in English when the user asks in English.' 
+            : `CRITICAL: The user asked in ${userLanguage}. You MUST respond in ${userLanguage}, not in English or any other language. Always match the user's query language exactly.`;
           conversationMessages.push({
             role: 'user',
-            content: `Tool result for ${toolName}: ${JSON.stringify(toolResult)}. Please provide a natural language response to the user based on this information.`
+            content: `Tool result for ${toolName}: ${JSON.stringify(toolResult)}. ${languageInstruction} Please provide a natural language response to the user based on this information.`
           });
           
           // Mark that tools have been executed - no need to add them on next iteration
@@ -1965,6 +2089,13 @@ app.get('/api/mcp/tools', (req, res) => {
       description: 'Display, search, and summarize meeting transcripts and recordings', 
       category: 'General',
       tools: getToolsByCategory('transcript')
+    },
+    { 
+      id: 'notion', 
+      name: 'Notion', 
+      description: 'Search, read, and access Notion pages and databases', 
+      category: 'Productivity',
+      tools: getToolsByCategory('notion')
     },
   ];
   

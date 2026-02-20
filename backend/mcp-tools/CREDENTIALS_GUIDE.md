@@ -35,6 +35,9 @@ CONFLUENCE_API_TOKEN=your-api-token
 # Discord
 DISCORD_BOT_TOKEN=your-bot-token-here
 
+# Notion
+NOTION_API_TOKEN=secret_your-integration-token-here
+
 # Audio Transcription (Optional but recommended)
 HUGGINGFACE_API_TOKEN=hf_your-token-here
 ```
@@ -272,6 +275,42 @@ CONFLUENCE_API_TOKEN=ATATT3xFfGF0...  # Same as JIRA_API_TOKEN
 
 ---
 
+### 8. Notion
+
+**Required:** `NOTION_API_TOKEN`
+
+**Steps to get token:**
+
+1. Go to https://www.notion.so/my-integrations
+2. Click "+ New integration"
+3. Give it a name (e.g., "MCP Tools - Read Only")
+4. Select your workspace
+5. **Important:** Under "Capabilities", ensure only read permissions are enabled:
+   - ✅ Read content
+   - ✅ Read comments (optional)
+   - ❌ Insert content (disable for read-only)
+   - ❌ Update content (disable for read-only)
+   - ❌ Update comments (disable for read-only)
+6. Click "Submit" to create the integration
+7. Copy the "Internal Integration Token" (starts with `secret_`)
+8. Set `NOTION_API_TOKEN=secret_your-token-here`
+
+**Important:** After creating the integration, you need to share pages/databases with it:
+1. Open any Notion page or database you want to access
+2. Click the "..." menu (top right)
+3. Click "Add connections" or "Connections"
+4. Search for and select your integration
+5. The integration will now have access to that page/database
+
+**Note:** For read-only operations, the integration only needs "Read content" capability. Make sure to share the pages/databases you want to access with the integration.
+
+**Example:**
+```env
+NOTION_API_TOKEN=secret_abc123def456...
+```
+
+---
+
 ## Complete .env File Example
 
 ```env
@@ -302,6 +341,9 @@ CONFLUENCE_API_TOKEN=ATATT3xFfGF0...
 
 # Discord
 DISCORD_BOT_TOKEN=MTIzNDU2Nzg5MDEyMzQ1Njc4OQ...
+
+# Notion
+NOTION_API_TOKEN=secret_abc123def456...
 ```
 
 ---
@@ -398,6 +440,7 @@ Test individual tools by asking the LLM:
 - [ ] Perforce: Server, user, client, and password configured
 - [ ] Confluence: Base URL, email, and API token set (can reuse Jira token)
 - [ ] Discord: Bot token created and bot invited to servers
+- [ ] Notion: Integration token created and pages/databases shared with integration
 - [ ] Audio Transcription: Hugging Face API token (optional but recommended)
 - [ ] All credentials added to `.env` file in `backend/` directory
 - [ ] Backend server restarted after adding credentials

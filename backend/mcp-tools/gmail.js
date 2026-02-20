@@ -11,6 +11,9 @@ const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 
 // Load Google credentials from file
 let GOOGLE_ACCESS_TOKEN = '';
+let GOOGLE_REFRESH_TOKEN = '';
+let GOOGLE_CLIENT_ID = '';
+let GOOGLE_CLIENT_SECRET = '';
 
 try {
   const credentialsPath = path.join(__dirname, '../credentials/google.env');
@@ -25,16 +28,94 @@ try {
         const value = valueParts.join('=').trim();
         if (key === 'GOOGLE_ACCESS_TOKEN') {
           GOOGLE_ACCESS_TOKEN = value;
+        } else if (key === 'GOOGLE_REFRESH_TOKEN') {
+          GOOGLE_REFRESH_TOKEN = value;
+        } else if (key === 'GOOGLE_CLIENT_ID') {
+          GOOGLE_CLIENT_ID = value;
+        } else if (key === 'GOOGLE_CLIENT_SECRET') {
+          GOOGLE_CLIENT_SECRET = value;
         }
       }
     }
+    console.log('✅ Google credentials loaded:', {
+      hasAccessToken: !!GOOGLE_ACCESS_TOKEN,
+      hasRefreshToken: !!GOOGLE_REFRESH_TOKEN,
+      hasClientCredentials: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
+    });
   }
 } catch (error) {
-  console.warn('Warning: Could not load Google credentials:', error.message);
+  console.warn('⚠️ Warning: Could not load Google credentials:', error.message);
 }
 
-// Helper function for Gmail API calls
-const gmailApiCall = async (endpoint, method = 'GET', data = null) => {
+// Save refreshed access token to file
+const saveAccessToken = (newToken) => {
+  try {
+    const credentialsPath = path.join(__dirname, '../credentials/google.env');
+    let content = fs.readFileSync(credentialsPath, 'utf8');
+    
+    // Update access token in file
+    if (content.includes('GOOGLE_ACCESS_TOKEN=')) {
+      content = content.replace(
+        /GOOGLE_ACCESS_TOKEN=.*/,
+        `GOOGLE_ACCESS_TOKEN=${newToken}`
+      );
+    } else {
+      content += `\nGOOGLE_ACCESS_TOKEN=${newToken}`;
+    }
+    
+    fs.writeFileSync(credentialsPath, content, 'utf8');
+    GOOGLE_ACCESS_TOKEN = newToken; // Update in-memory token
+    console.log('✅ Google access token refreshed and saved');
+  } catch (error) {
+    console.error('❌ Failed to save refreshed token:', error.message);
+  }
+};
+
+// Refresh access token using refresh token
+const refreshAccessToken = async () => {
+  if (!GOOGLE_REFRESH_TOKEN) {
+    return { error: 'No refresh token available. Cannot automatically refresh access token.' };
+  }
+  
+  // Check if we have client credentials (required for refresh)
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return { 
+      error: 'Client ID and Client Secret are required for automatic token refresh. If you got the token from OAuth Playground, you cannot auto-refresh. You need to set up a proper OAuth application in Google Cloud Console with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' 
+    };
+  }
+  
+  try {
+    console.log('🔄 Refreshing Google access token...');
+    
+    const response = await axios.post('https://oauth2.googleapis.com/token', {
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: GOOGLE_REFRESH_TOKEN,
+      grant_type: 'refresh_token'
+    });
+    
+    if (response.data.access_token) {
+      const newAccessToken = response.data.access_token;
+      saveAccessToken(newAccessToken);
+      return { success: true, access_token: newAccessToken };
+    } else {
+      return { error: 'Token refresh failed: No access token in response' };
+    }
+  } catch (error) {
+    const errorMsg = error.response?.data?.error_description || error.response?.data?.error || error.message;
+    console.error('❌ Token refresh failed:', errorMsg);
+    return { error: `Token refresh failed: ${errorMsg}` };
+  }
+};
+
+// Helper function for Gmail API calls with automatic token refresh
+const gmailApiCall = async (endpoint, method = 'GET', data = null, retryCount = 0) => {
+  if (!GOOGLE_ACCESS_TOKEN) {
+    return { 
+      error: 'Gmail API token not configured. Please set up google.env credentials with GOOGLE_ACCESS_TOKEN. See CREDENTIALS_GUIDE.md for setup instructions.' 
+    };
+  }
+  
   try {
     const config = {
       method,
@@ -52,8 +133,50 @@ const gmailApiCall = async (endpoint, method = 'GET', data = null) => {
     const response = await axios(config);
     return response.data;
   } catch (error) {
+    const errorMsg = error.response?.data?.error?.message || error.message;
+    const status = error.response?.status;
+    
+    // If 401 (unauthorized) and we have a refresh token, try to refresh
+    if (status === 401 && GOOGLE_REFRESH_TOKEN && retryCount === 0) {
+      // Check if we have client credentials for refresh
+      if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+        console.log('⚠️ Access token expired, attempting automatic refresh...');
+        const refreshResult = await refreshAccessToken();
+        
+        if (refreshResult.success || refreshResult.access_token) {
+          console.log('✅ Token refreshed, retrying request...');
+          // Retry the request with new token
+          return await gmailApiCall(endpoint, method, data, retryCount + 1);
+        }
+        // If refresh failed, fall through to show the actual error
+      }
+      // No client credentials or refresh failed - show token error
+    }
+    
+    // Provide helpful error messages
+    if (status === 401) {
+      // Check if error indicates invalid token vs expired token
+      const isInvalidToken = errorMsg?.includes('Invalid Credentials') || errorMsg?.includes('invalid authentication');
+      
+      if (isInvalidToken) {
+        return { 
+          error: `Gmail authentication failed. The access token is invalid or expired. Please get a new token from https://developers.google.com/oauthplayground/ (select scopes: gmail.readonly, calendar.readonly, drive.readonly) and update GOOGLE_ACCESS_TOKEN in google.env. Original error: ${errorMsg}` 
+        };
+      } else {
+        return { 
+          error: `Gmail authentication failed. The access token may have expired (tokens expire after ~1 hour). Please get a new token from https://developers.google.com/oauthplayground/ and update GOOGLE_ACCESS_TOKEN in google.env. Original error: ${errorMsg}` 
+        };
+      }
+    }
+    
+    if (status === 403) {
+      return { 
+        error: `Gmail access denied. Make sure the token has the required scopes: gmail.readonly, calendar.readonly, drive.readonly. Original error: ${errorMsg}` 
+      };
+    }
+    
     return { 
-      error: error.response?.data?.error?.message || error.message 
+      error: errorMsg || error.message 
     };
   }
 };
